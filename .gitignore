@@ -1,0 +1,28 @@
+# --- uv / virtualenv ---
+.venv/
+venv/
+.uv/
+
+# --- Python bytecode & caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# --- packaging / build artifacts ---
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- editor / OS cruft ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Note: uv.lock and .python-version are intentionally NOT ignored — committing
+# them keeps the environment reproducible. Remove from this comment / add below
+# if you'd rather not track them.
