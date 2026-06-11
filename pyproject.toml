@@ -1,9 +1,19 @@
 [project]
 name = "dragons-dogma-stat-planner"
 version = "0.1.0"
-description = "Add your description here"
+description = "Solver for Dragon's Dogma: Dark Arisen level-200 character builds — finds the vocation leveling plan that meets target stats."
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "sysdmp", email = "200008240+sysdmp@users.noreply.github.com" },
+]
+keywords = ["dragons-dogma", "dark-arisen", "build", "optimization", "ilp", "solver"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Games/Entertainment",
+]
 dependencies = [
     "pulp>=3.3.1",
 ]
