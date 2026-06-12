@@ -401,7 +401,8 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
 
 def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
-              minimize_vocations=False, base_st=None, allowed=None, bias=(), dump=()):
+              minimize_vocations=False, base_st=None, allowed=None, bias=(), dump=(),
+              weights=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -438,9 +439,14 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
     first, via the same sequential lexicographic optimization as `bias` but
     minimizing. Ranked below all `bias` stats and above the total-stat
     maximization. Other constraints still hold.
+
+    `weights`: per-stat weights for the balanced total-stat objective; defaults
+    to BALANCE_WEIGHTS (hp/st discounted to 0.1). Pass all-1.0 weights to value
+    every stat equally.
     """
     rounding = dict(rounding or {})
     neat = set(neat)
+    weights = weights if weights is not None else BALANCE_WEIGHTS
     adv_pool = list(allowed) if allowed is not None else ALL
     candidates = []   # (quality_key, build) across all starts; sorted at the end
     # The start vocation only shifts the constant base stats, so solve one ILP
@@ -519,7 +525,7 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
         # constraints alone dictate which vocations get leveled.
         W_VOC  = 10**9   # per used vocation; dominant
         W_STAT = 10**3   # per (weighted) stat point
-        total_stats = pulp.lpSum(BALANCE_WEIGHTS[k] * exprs[k] for k in STATS)
+        total_stats = pulp.lpSum(weights[k] * exprs[k] for k in STATS)
         base_objective = -W_STAT * total_stats
 
         if minimize_vocations:
@@ -579,7 +585,7 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
             n_vocs = len({v for cc in (c10, c100, c200) for v, n in cc.items() if n > 0})
             voc_key = (n_vocs,) if minimize_vocations else ()
             lex_key = tuple(-opt if sense > 0 else opt for sense, opt in lex_opts)
-            wstat = sum(BALANCE_WEIGHTS[k] * s[k] for k in STATS)
+            wstat = sum(weights[k] * s[k] for k in STATS)
             quality = (voc_key, lex_key, -wstat)
             candidates.append((quality, build))
 
@@ -697,6 +703,9 @@ def parse_args():
                               "first (constraints still hold; ranked below --bias,\n"
                               "above the total stat sum)\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
+    g_goals.add_argument('--equal-weights', action='store_true',
+                         help="value hp/st equally with the other stats in the\n"
+                              "balanced objective (by default they are discounted)")
 
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
     g_char.add_argument('--weight', choices=list(WEIGHTS), default='M', metavar='CLASS',
@@ -1076,7 +1085,8 @@ def main():
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         builds = solve_ilp(cons, count=count, rounding=rounding, neat=neat, match=match,
                            minimize_vocations=a.minimize_vocations, base_st=base_st,
-                           allowed=allowed, bias=bias, dump=dump)
+                           allowed=allowed, bias=bias, dump=dump,
+                           weights={k: 1.0 for k in STATS} if a.equal_weights else None)
         if not builds:
             if a.json:
                 print(json.dumps({
