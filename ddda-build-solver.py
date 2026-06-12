@@ -691,7 +691,7 @@ def parse_args():
     """Define and parse command-line arguments; return the argparse Namespace."""
     weights_desc = '\n'.join(
         f"{w:2s} = stamina {WEIGHTS[w]}, regen {WEIGHT_STAREGEN[w][0]}/s "
-        f"({WEIGHT_STAREGEN[w][1]})  -  {WEIGHT_RANGES[w]}"
+        f"({WEIGHT_STAREGEN[w][1]}), encumbrance {WEIGHT_ENCUMBRANCE[w]}kg  -  {WEIGHT_RANGES[w]}"
         for w in WEIGHTS
     ).replace('%', '%%')
 
@@ -790,7 +790,7 @@ def parse_args():
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
     g_char.add_argument('--weight', choices=list(WEIGHTS), default='M', metavar='CLASS',
                         type=lambda s: s.upper(),  # accept ss / Ss / sS as SS, etc.
-                        help="weight class -> base stamina and regen:\n" + weights_desc +
+                        help="weight class -> base stamina, regen, encumbrance:\n" + weights_desc +
                              "\n(default: M; case-insensitive)")
     g_char.add_argument('--avoid', type=str, default='', metavar='VOCS',
                         help="comma-separated vocations to drop from consideration\n"

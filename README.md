@@ -202,7 +202,7 @@ balanced build from piling level-ups into them at the expense of combat stats. P
 
 | Flag             | Meaning                                                                 |
 |------------------|-------------------------------------------------------------------------|
-| `--weight CLASS` | Weight class, which sets base stamina and stamina-regen rate. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
+| `--weight CLASS` | Weight class, which sets base stamina, stamina-regen rate, and max encumbrance. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
 | `--avoid VOCS`   | Comma-separated vocations to drop from consideration entirely (never leveled in any range, and excluded as a start vocation). |
 | `--pawn`         | Build for a pawn: alias for `--avoid mknight,marcher,assassin`. |
 
