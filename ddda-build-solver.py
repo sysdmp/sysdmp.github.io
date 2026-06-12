@@ -345,7 +345,16 @@ def neighbors_move(c, vocs):
     nc = dict(c); nc[a]-=1; nc[b]+=1
     return nc
 
-def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None):
+SEARCH_RESTARTS = 60   # random restarts per search() call; iters split across them
+
+class SearchInterrupted(Exception):
+    """Raised when the search solver is Ctrl+C'd; carries the best build so far
+    (a build tuple, or None if nothing was evaluated yet)."""
+    def __init__(self, best):
+        super().__init__("search interrupted")
+        self.best = best
+
+def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, progress=None):
     """Stochastic hill-climb for a feasible build (fallback when PuLP is absent).
 
     Performs random restarts, each starting from a random vocation distribution
@@ -360,6 +369,8 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None):
             any range (defaults to all).
         start_pool: optional iterable of allowed basic start vocations (defaults
             to the basics still in `allowed`).
+        progress: optional callback invoked with the number of restarts finished
+            (1..SEARCH_RESTARTS) after each restart, for progress reporting.
 
     Returns:
         The best build found as a tuple
@@ -370,39 +381,49 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None):
     basic_pool = [v for v in BASIC if v in adv_pool]
     starts = list(start_pool) if start_pool is not None else basic_pool
     best = None
-    for restart in range(60):
+
+    def consider(cand):
+        nonlocal best
+        if best is None or cand[0] < best[0]:
+            best = cand
+
+    for restart in range(SEARCH_RESTARTS):
         start = random.choice(starts)
         c10 = rand_counts(basic_pool, 9)
         c100 = rand_counts(adv_pool, 90)
         c200 = rand_counts(adv_pool, 100)
         cur_p = penalty(stats_of(start,c10,c100,c200,base_st), cons)
-        for it in range(iters//60):
-            which = random.random()
-            if which < 0.1:
-                nstart = random.choice(starts); nc10,nc100,nc200=c10,c100,c200
+        try:
+            for it in range(iters // SEARCH_RESTARTS):
+                which = random.random()
+                if which < 0.1:
+                    nstart = random.choice(starts); nc10,nc100,nc200=c10,c100,c200
+                    np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
+                    if np_<=cur_p:
+                        start=nstart; cur_p=np_
+                    continue
+                elif which < 0.2:
+                    m = neighbors_move(c10, basic_pool);
+                    if m is None: continue
+                    nc10,nc100,nc200=m,c100,c200; nstart=start
+                elif which < 0.6:
+                    m = neighbors_move(c100, adv_pool)
+                    if m is None: continue
+                    nc10,nc100,nc200=c10,m,c200; nstart=start
+                else:
+                    m = neighbors_move(c200, adv_pool)
+                    if m is None: continue
+                    nc10,nc100,nc200=c10,c100,m; nstart=start
                 np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
                 if np_<=cur_p:
-                    start=nstart; cur_p=np_
-                continue
-            elif which < 0.2:
-                m = neighbors_move(c10, basic_pool);
-                if m is None: continue
-                nc10,nc100,nc200=m,c100,c200; nstart=start
-            elif which < 0.6:
-                m = neighbors_move(c100, adv_pool)
-                if m is None: continue
-                nc10,nc100,nc200=c10,m,c200; nstart=start
-            else:
-                m = neighbors_move(c200, adv_pool)
-                if m is None: continue
-                nc10,nc100,nc200=c10,c100,m; nstart=start
-            np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
-            if np_<=cur_p:
-                c10,c100,c200=nc10,nc100,nc200; cur_p=np_
-        s = stats_of(start,c10,c100,c200,base_st)
-        cand = (cur_p, start, c10, c100, c200, s)
-        if best is None or cand[0]<best[0]:
-            best = cand
+                    c10,c100,c200=nc10,nc100,nc200; cur_p=np_
+        except KeyboardInterrupt:
+            # fold this restart's in-progress state in, then signal upward
+            consider((cur_p, start, c10, c100, c200, stats_of(start,c10,c100,c200,base_st)))
+            raise SearchInterrupted(best)
+        consider((cur_p, start, c10, c100, c200, stats_of(start,c10,c100,c200,base_st)))
+        if progress is not None:
+            progress(restart + 1)
     return best
 
 def is_nice(n):
@@ -827,29 +848,64 @@ def parse_args():
 
     return ap.parse_args()
 
-def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None):
-    """Returns a list of feasible builds (penalty 0), distinct by their vocation
-    distribution, gathered across random restarts. If none are feasible, returns
-    a single-element list with the closest build found (penalty > 0)."""
+def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None, show_progress=False):
+    """Search across random restarts; return (builds, interrupted).
+
+    `builds` is a list of feasible builds (penalty 0), distinct by their vocation
+    distribution; if none are feasible it's a single-element list with the closest
+    build found (penalty > 0). `interrupted` is True if the search was Ctrl+C'd,
+    in which case `builds` reflects the best found before the interrupt.
+
+    When ``show_progress`` is set, a single in-place progress line (restarts done
+    / total, percentage) is written to stderr while the search runs.
+    """
     found, seen, closest = [], set(), None
     # widen the restart budget when asked for several builds
     n_seeds = max(a.seeds, count * a.seeds)
-    for i in range(n_seeds):
-        random.seed(a.seed + i)
-        cand = search(cons, iters=a.iters, base_st=base_st, allowed=allowed, start_pool=start_pool)
+    total = n_seeds * SEARCH_RESTARTS   # total restarts across all seeds
+    interrupted = False
+
+    prog = None
+    if show_progress:
+        done_before = 0   # restarts completed in prior seeds
+        spin = '|/-\\'
+        def prog(restart_in_seed):
+            done = done_before + restart_in_seed
+            ch = spin[done % len(spin)]
+            sys.stderr.write(f"\r  {ch} search: {done}/{total} restarts "
+                             f"({done * 100 // total}%), {len(found)}/{count} builds")
+            sys.stderr.flush()
+
+    def record(cand):
+        """Track the closest build and collect distinct feasible ones."""
+        nonlocal closest
+        if cand is None:
+            return
         if closest is None or cand[0] < closest[0]:
             closest = cand
         if cand[0] == 0:
-            key = (cand[1],
-                   tuple(sorted(cand[2].items())),
-                   tuple(sorted(cand[3].items())),
-                   tuple(sorted(cand[4].items())))
+            key = (cand[1], *(tuple(sorted(cand[r].items())) for r in (2, 3, 4)))
             if key not in seen:
                 seen.add(key)
                 found.append(cand)
-                if len(found) >= count:
-                    break
-    return found if found else [closest]
+
+    try:
+        for i in range(n_seeds):
+            random.seed(a.seed + i)
+            record(search(cons, iters=a.iters, base_st=base_st, allowed=allowed,
+                          start_pool=start_pool, progress=prog))
+            if show_progress:
+                done_before = (i + 1) * SEARCH_RESTARTS
+            if len(found) >= count:
+                break
+    except (KeyboardInterrupt, SearchInterrupted) as e:
+        interrupted = True
+        record(getattr(e, 'best', None))
+
+    if show_progress:
+        sys.stderr.write("\r" + " " * 60 + "\r")   # clear the progress line
+        sys.stderr.flush()
+    return (found if found else [closest]) if closest is not None else [], interrupted
 
 def _clean(c):
     """Drop zero-count vocations from a level-distribution dict."""
@@ -1305,8 +1361,18 @@ def main():
                 if val:
                     print(c(f"\nnote: {flag} is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             print(c("\nsolver: ", 'dim') + c("search (stochastic hill-climb)", 'yellow'))
-        builds = run_search(cons, a, count=count, base_st=base_st, allowed=allowed,
-                            start_pool=start_pool)
+        builds, interrupted = run_search(cons, a, count=count, base_st=base_st, allowed=allowed,
+                            start_pool=start_pool,
+                            show_progress=not a.json and sys.stderr.isatty())
+        if interrupted and not a.json:
+            print(c("\nsearch interrupted — showing the best build found so far.", 'yellow', 'bold'))
+        if not builds:
+            if not a.json:
+                print(c("\nsearch interrupted before any build was evaluated.", 'yellow'))
+            else:
+                print(json.dumps({"feasible": False, "solver": method,
+                                  "interrupted": True, "builds": []}, indent=2))
+            return
 
     if a.json:
         doc = {
@@ -1345,4 +1411,10 @@ def main():
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # Ctrl+C outside the search loop (e.g. during the ILP solve or setup):
+        # exit quietly without a traceback.
+        sys.stderr.write("\naborted.\n")
+        sys.exit(130)
