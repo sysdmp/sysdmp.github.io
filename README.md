@@ -156,6 +156,7 @@ with a warning.
 | Flag             | Meaning                                                                 |
 |------------------|-------------------------------------------------------------------------|
 | `--weight CLASS` | Weight class, which sets initial stamina and stamina-regen rate. One of `SS`, `S`, `M`, `L`, `LL` (default `M`). |
+| `--pawn`         | Build for a pawn: disallow the vocations a pawn cannot take (`mknight`, `marcher`, `assassin`). |
 
 | Class | Body weight     | Init stamina | Stamina regen |
 |-------|-----------------|--------------|---------------|
@@ -166,6 +167,12 @@ with a warning.
 | LL    | 110 kg and over | 580          | 31/s (75%)    |
 
 Stamina regen is informational (it does not affect the solve).
+
+Unlike the [ILP-only goals](#ilp-only-goals), `--pawn` is honored by **both**
+solvers. It removes Mystic Knight, Magick Archer, and Assassin from the vocations
+available in the `10→100` and `100→200` ranges — useful for planning a pawn, whose
+vocation pool is more limited than the Arisen's. If your targets genuinely require an
+excluded vocation, the result will be reported as infeasible.
 
 ### Solver
 
@@ -190,10 +197,10 @@ first) and enumerates distinct builds via no-good cuts when `--count > 1`. The
 | `--charset`   | Table characters: `auto` (by locale, default), `unicode`, or `ascii`.    |
 
 The JSON document includes the weight class, the full constraints (with `exact` /
-`perfect` / `neat` flags), the `match` pairs, the solver used, and a `builds` array.
-Each build reports its `start` vocation, per-range `levels`, `final_stats`, and a
-`feasible` flag. Stat keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of
-display formatting.
+`perfect` / `neat` flags), the `match` pairs, the `pawn` flag and any
+`excluded_vocations`, the solver used, and a `builds` array. Each build reports its
+`start` vocation, per-range `levels`, `final_stats`, and a `feasible` flag. Stat keys
+stay lowercase (`hp`, `attack`, `mattack`, …) regardless of display formatting.
 
 ## Examples
 
@@ -206,6 +213,9 @@ $ ddda-build-solver.py --attack 550 --count 3
 
 # Keep physical and magick stats equal, fewest vocation changes
 $ ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocations
+
+# Plan a pawn build (no Mystic Knight / Magick Archer / Assassin)
+$ ddda-build-solver.py --pawn
 
 # Heavy character, "neat" HP, machine-readable output
 $ ddda-build-solver.py --weight LL --neat hp --json
