@@ -199,8 +199,8 @@ PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
 DIVISOR_MODES = {'perfect': 100, 'half_perfect': 50, 'decimal': 10}
 # Built-in default (min, max) per stat, applied unless --no-default is given.
 STAT_DEFAULTS = {
-    'hp':       (3500, None),
-    'st':       (3500, None),
+    'hp':       (3200, None),
+    'st':       (3200, None),
     'attack':   (500,  None),
     'defense':  (300,  None),
     'mattack':  (500,  None),

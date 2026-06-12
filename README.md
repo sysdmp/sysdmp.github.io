@@ -73,8 +73,8 @@ first use. If you prefer to run with a plain `python3`, install PuLP yourself
 
 ## Quick start
 
-Run with no arguments to solve for the built-in default targets (hp ≥ 3500,
-st ≥ 3500, attack/mattack ≥ 500, defense/mdefense ≥ 300):
+Run with no arguments to solve for the built-in default targets (hp ≥ 3200,
+st ≥ 3200, attack/mattack ≥ 500, defense/mdefense ≥ 300):
 
 ```console
 $ uv run ddda-build-solver.py
@@ -102,29 +102,29 @@ found 1 build(s):
  build 1   [OK] all requirements met
  start vocation: fighter
 ====================================================
-                      leveling plan
-+----------+--------+--------------------------------------+
-| range    | levels | vocations                            |
-+----------+--------+--------------------------------------+
-| 1->10    |      9 | mage x9                              |
-| 10->100  |     90 | fighter x75  ranger x14  sorcerer x1 |
-| 100->200 |    100 | strider x44  mage x5  sorcerer x51   |
-+----------+--------+--------------------------------------+
+                             leveling plan
++----------+--------+---------------------------------------------------+
+| range    | levels | vocations                                         |
++----------+--------+---------------------------------------------------+
+| 1->10    |      9 | mage x9                                           |
+| 10->100  |     90 | fighter x87  sorcerer x3                          |
+| 100->200 |    100 | strider x15  mage x22  sorcerer x52  assassin x11 |
++----------+--------+---------------------------------------------------+
  vocation switches: 6 (7 leveling blocks across the 3 ranges)
                     final stats
 +----------+-------+---------------------------------+
 | stat     | value | requirement                     |
 +----------+-------+---------------------------------+
-| hp       |  4513 | >=3500                          |
-| st       |  3500 | >=3500                          |
+| hp       |  4785 | >=3200                          |
+| st       |  3200 | >=3200                          |
 | attack   |   500 | >=500                           |
-| defense  |   480 | >=300                           |
+| defense  |   484 | >=300                           |
 | mattack  |   500 | >=500                           |
 | mdefense |   300 | >=300                           |
 | ---      |   --- | ---                             |
-| combat   |  1780 | attack+mattack+defense+mdefense |
-| vitals   |  8013 | hp + st                         |
-| total    |  9793 | all stats                       |
+| combat   |  1784 | attack+mattack+defense+mdefense |
+| vitals   |  7985 | hp + st                         |
+| total    |  9769 | all stats                       |
 +----------+-------+---------------------------------+
 ```
 
@@ -144,7 +144,7 @@ For each of the six stats (`hp`, `st`, `attack`, `defense`, `mattack`, `mdefense
 | `--<stat>-min N` | Lower bound (floor).                                           |
 | `--<stat>-max N` | Upper bound (ceiling).                                         |
 
-Omit a bound to leave it unconstrained. Defaults: `hp`/`st` min 3500, `attack`/`mattack`
+Omit a bound to leave it unconstrained. Defaults: `hp`/`st` min 3200, `attack`/`mattack`
 min 500, `defense`/`mdefense` min 300, no maximums.
 
 `--no-default` ignores the built-in default minimums entirely — only the constraints
