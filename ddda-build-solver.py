@@ -389,8 +389,8 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
     m200 = max(growth(v, 'to200')[k] for v in adv_pool)
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
 
-def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=False,
-              init_st=None, allowed=None, bias=(), dump=()):
+def solve_ilp(cons, count=1, perfect=(), half_perfect=(), neat=(), match=(),
+              minimize_vocations=False, init_st=None, allowed=None, bias=(), dump=()):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -400,6 +400,8 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
     `perfect` is a set of stat names that must each be an exact multiple of 100.
     For a perfect stat the max bound is dropped and the min (if any) is kept as a
     floor; the value is forced to 100*k via a fresh integer k.
+
+    `half_perfect` is like `perfect` but forces a multiple of 50 (e.g. 450).
 
     `neat` is a set of stat names that must each be a "neat" number (see
     ``is_neat``). Like perfect, the max bound is dropped and the min kept as a
@@ -427,6 +429,7 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
     maximization. Other constraints still hold.
     """
     perfect = set(perfect)
+    half_perfect = set(half_perfect)
     neat = set(neat)
     adv_pool = list(allowed) if allowed is not None else ALL
     results = []
@@ -466,6 +469,11 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
                 mult = pulp.LpVariable(f"perf_{k}_{start}", lowBound=0, cat="Integer")
                 prob += expr == 100 * mult
                 if lo is not None: prob += expr >= lo
+            elif k in half_perfect:
+                # half-perfect mode: value == 50*mult, min kept as floor, max dropped
+                mult = pulp.LpVariable(f"half_{k}_{start}", lowBound=0, cat="Integer")
+                prob += expr == 50 * mult
+                if lo is not None: prob += expr >= lo
             elif k in neat:
                 # neat mode: value must be one of the enumerated neat numbers in
                 # [floor, reachable-max]. Pick exactly one via binary selectors.
@@ -490,7 +498,7 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
 
         # penalty is reported against constraints as actually enforced: perfect
         # and neat stats keep only their floor, so their dropped max isn't counted.
-        relaxed = perfect | neat
+        relaxed = perfect | half_perfect | neat
         eval_cons = {k: ((cons[k][0], None) if k in relaxed else cons[k]) for k in STATS}
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
@@ -628,6 +636,9 @@ def parse_args():
                          help="comma-separated stats forced to a multiple of 100\n"
                               "(max bound dropped, min kept as a floor)\n"
                               "stats: " + ','.join(STATS) + " (or 'all')")
+    g_goals.add_argument('--half-perfect', type=str, default='', metavar='STATS',
+                         help="like --perfect but a multiple of 50 (e.g. 450)\n"
+                              "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--neat', type=str, default='', metavar='STATS',
                          help="comma-separated stats forced to a 'neat' number:\n"
                               "666, ending in 42 or 69, all-same-digit (444),\n"
@@ -727,7 +738,7 @@ def _fmt_levels(counts):
     items = [(v, counts[v]) for v in VOC_ORDER if counts.get(v, 0) > 0]
     return '  '.join(f"{c(v,'magenta')} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
 
-def print_build(idx, build, cons, perfect, neat=()):
+def print_build(idx, build, cons, perfect, neat=(), half_perfect=()):
     """Print one build as a colored header plus leveling-plan and final-stats tables.
 
     Args:
@@ -741,6 +752,7 @@ def print_build(idx, build, cons, perfect, neat=()):
     """
     p,start,c10,c100,c200,s = build
     perfect = set(perfect)
+    half_perfect = set(half_perfect)
     neat = set(neat)
 
     head = c(f"build {idx}", 'bold', 'white')
@@ -769,13 +781,14 @@ def print_build(idx, build, cons, perfect, neat=()):
     rows = []
     for k in STATS:
         lo, hi = cons[k]
-        hi_eff = None if (k in perfect or k in neat) else hi
+        hi_eff = None if (k in perfect or k in half_perfect or k in neat) else hi
         ok = (lo is None or s[k] >= lo) and (hi_eff is None or s[k] <= hi_eff)
         val = c(str(s[k]), 'green' if ok else 'red', 'bold')
         bound = []
         if lo is not None: bound.append(f"{GLYPH['ge']}{lo}")
         if hi_eff is not None: bound.append(f"{GLYPH['le']}{hi_eff}")
         if k in perfect: bound.append(f"{GLYPH['mul']}100")
+        if k in half_perfect: bound.append(f"{GLYPH['mul']}50")
         if k in neat: bound.append("neat")
         rows.append([c(k,'cyan'), val, c(' '.join(bound) or GLYPH['dash'], 'dim')])
     print(render_table(
@@ -844,20 +857,29 @@ def main():
         return items
 
     perfect = parse_stat_list(a.perfect)
+    half_perfect = parse_stat_list(a.half_perfect)
     neat = parse_stat_list(a.neat)
-    for flag, names in (('--perfect', perfect), ('--neat', neat)):
+    for flag, names in (('--perfect', perfect), ('--half-perfect', half_perfect),
+                        ('--neat', neat)):
         bad = [s for s in names if s not in STATS]
         if bad:
             fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)},all")
             return
-    # An exact value pins a single value, which overrides --perfect/--neat for
-    # that stat (so e.g. `--perfect all --attack 666` uses exactly 666 for attack).
+    # An exact value pins a single value, which overrides --perfect/--half-perfect/
+    # --neat for that stat (e.g. `--perfect all --attack 666` uses exactly 666).
     perfect = [s for s in perfect if s not in exact]
+    half_perfect = [s for s in half_perfect if s not in exact]
     neat = [s for s in neat if s not in exact]
-    both = set(perfect) & set(neat)
-    if both:
-        fail(f"stat(s) in both --perfect and --neat: {','.join(sorted(both))}")
-        return
+    # A stat may be in at most one of perfect / half-perfect / neat.
+    for (n1, s1), (n2, s2) in (
+        (('--perfect', perfect), ('--half-perfect', half_perfect)),
+        (('--perfect', perfect), ('--neat', neat)),
+        (('--half-perfect', half_perfect), ('--neat', neat)),
+    ):
+        clash = set(s1) & set(s2)
+        if clash:
+            fail(f"stat(s) in both {n1} and {n2}: {','.join(sorted(clash))}")
+            return
 
     # --bias: ordered list of stats to maximize (highest priority first).
     bias = parse_stat_list(a.bias)
@@ -958,12 +980,13 @@ def main():
                 c(str(hi) if hi is not None else GLYPH['dash'], 'dim' if hi is None else None),
                 c('yes','green') if is_exact else c(GLYPH['dash'],'dim'),
                 c('yes','green') if k in perfect else c(GLYPH['dash'],'dim'),
+                c('yes','green') if k in half_perfect else c(GLYPH['dash'],'dim'),
                 c('yes','green') if k in neat else c(GLYPH['dash'],'dim'),
                 c(', '.join(partners),'green') if partners else c(GLYPH['dash'],'dim'),
             ])
         print(render_table(
-            ["stat", "min", "max", "exact", "perfect", "neat", "match"],
-            crows, aligns=['left','right','right','center','center','center','left'],
+            ["stat", "min", "max", "exact", "perfect", "half-perf", "neat", "match"],
+            crows, aligns=['left','right','right','center','center','center','center','left'],
             title="target constraints",
         ))
 
@@ -984,7 +1007,8 @@ def main():
     if method == 'ilp':
         if not a.json:
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
-        builds = solve_ilp(cons, count=count, perfect=perfect, neat=neat, match=match,
+        builds = solve_ilp(cons, count=count, perfect=perfect, half_perfect=half_perfect,
+                           neat=neat, match=match,
                            minimize_vocations=a.minimize_vocations, init_st=init_st,
                            allowed=allowed, bias=bias, dump=dump)
         if not builds:
@@ -1028,6 +1052,7 @@ def main():
             },
             "constraints": {k: {"min": cons[k][0], "max": cons[k][1],
                                 "exact": k in exact, "perfect": k in perfect,
+                                "half_perfect": k in half_perfect,
                                 "neat": k in neat} for k in STATS},
             "match": [[a_s, b_s] for a_s, b_s in match],
             "pawn": a.pawn,
@@ -1044,7 +1069,7 @@ def main():
 
     print(c(f"\nfound {len(builds)} build(s)", 'bold') + (c(f" (requested {count})", 'dim') if count > 1 else "") + ":")
     for i, b in enumerate(builds, 1):
-        print_build(i, b, cons, perfect, neat)
+        print_build(i, b, cons, perfect, neat, half_perfect)
     if len(builds) < count:
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
 
