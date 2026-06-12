@@ -633,8 +633,9 @@ def parse_args():
 
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
     g_char.add_argument('--weight', choices=list(WEIGHTS), default='M', metavar='CLASS',
+                        type=lambda s: s.upper(),  # accept ss / Ss / sS as SS, etc.
                         help="weight class -> initial stamina and regen:\n" + weights_desc +
-                             "\n(default: M)")
+                             "\n(default: M; case-insensitive)")
     g_char.add_argument('--pawn', action='store_true',
                         help="build for a pawn: disallow the vocations a pawn\n"
                              "cannot take (" + ', '.join(PAWN_EXCLUDED) + ")")
