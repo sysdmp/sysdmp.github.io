@@ -373,12 +373,14 @@ def search(cons, iters=1500000, base_st=None, allowed=None):
 def is_nice(n):
     """Return True if ``n`` is a 'nice' number.
 
-    Nice numbers are: exactly 420; anything ending in 42 or 69; or a repdigit
-    (all digits identical, e.g. 444, 7777 — this also covers 666).
+    Nice numbers are: exactly 420; anything ending in 42 or 69; anything starting
+    with 42 or 69 (e.g. 4200, 695); or a repdigit (all digits identical, e.g. 444,
+    7777 — this also covers 666).
     """
     if n == 420: return True
     if n % 100 == 42: return True
     if n % 100 == 69: return True
+    if str(n).startswith(('42', '69')): return True
     if len(set(str(n))) == 1: return True   # repdigit (e.g. 111, 4444, 666)
     return False
 
@@ -680,7 +682,8 @@ def parse_args():
                               "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--nice', type=str, default='', metavar='STATS',
                          help="comma-separated stats forced to a 'nice' number:\n"
-                              "420, ending in 42 or 69, or all-same-digit (444, 666)\n"
+                              "420, starting or ending in 42 or 69, or all-same-\n"
+                              "digit (444, 666)\n"
                               "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--match', type=str, default='', metavar='PAIRS',
                          help="comma-separated stat pairs forced to equal values,\n"

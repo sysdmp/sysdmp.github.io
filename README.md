@@ -164,7 +164,7 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 | `--perfect STATS`     | a **multiple of 100** (e.g. 500).                                            |
 | `--half-perfect STATS`| a **multiple of 50** (e.g. 450).                                            |
 | `--decimal STATS`     | a **multiple of 10** (e.g. 430).                                            |
-| `--nice STATS`        | a **"nice" number**: `420`, ending in `42` or `69`, or all-same-digit (`444`, `666`). |
+| `--nice STATS`        | a **"nice" number**: `420`, starting or ending in `42` or `69`, or all-same-digit (`444`, `666`). |
 
 **Other goals:**
 
