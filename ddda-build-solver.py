@@ -31,7 +31,7 @@ Solvers
 Run ``ddda-build-solver.py --help`` for the full set of options.
 """
 
-import random, argparse, json, sys, os
+import random, argparse, json, sys, os, time
 
 try:
     import pulp
@@ -453,7 +453,8 @@ def _stat_upper_bound(k, base, adv_pool=ALL, basic_pool=BASIC):
 
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None,
-              maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None):
+              maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None,
+              verbose=False):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -501,7 +502,10 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     `weights`: per-stat weights for the balanced total-stat objective; defaults
     to BALANCE_WEIGHTS (hp/st discounted to 0.1). Pass all-1.0 weights to value
     every stat equally.
+
+    `verbose`: when True, run CBC with msg=True so it prints its own solver log.
     """
+    cbc = pulp.PULP_CBC_CMD(msg=verbose)   # reused for every solve in this run
     rounding = dict(rounding or {})
     nice = set(nice)
     weights = weights if weights is not None else BALANCE_WEIGHTS
@@ -618,7 +622,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         lex_opts = []   # the pinned optima, in priority order
         for stat, sense in lex_goals:
             prob.setObjective(-sense * exprs[stat])  # minimize -> max/min per sense
-            prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            prob.solve(cbc)
             if pulp.LpStatus[prob.status] != "Optimal":
                 infeasible_start = True
                 break
@@ -648,7 +652,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
             for stat, share in bias_shares:
                 prob += exprs[stat] >= share * MAX_GAIN[stat] * t
             prob.setObjective(-t)   # maximize t
-            prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            prob.solve(cbc)
             if pulp.LpStatus[prob.status] != "Optimal":
                 continue
             t_opt = t.value() or 0.0
@@ -660,7 +664,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # Enumerate up to `count` distinct builds for this start, best first.
         cut_id = 0
         for _ in range(count):
-            prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            prob.solve(cbc)
             if pulp.LpStatus[prob.status] != "Optimal":
                 break  # no more distinct builds for this start
             c10  = {v: int(round(x10[v].value()))  for v in basic_pool}
@@ -834,6 +838,9 @@ def parse_args():
                           help='search: random restarts to try (default: 8)')
     g_solver.add_argument('--iters', type=int, default=1500000, metavar='N',
                           help='search: iterations per seed (default: 1500000)')
+    g_solver.add_argument('--verbose-cbc', action='store_true',
+                          help='ilp: print the CBC solver log (msg=True);\n'
+                               'ignored under --json to keep output parseable')
 
     g_out = ap.add_argument_group(c('\U0001f5a5\U0000fe0f   output', 'bold'))
     g_out.add_argument('--json', action='store_true',
@@ -1329,15 +1336,18 @@ def main():
                     "for the exact ILP solver.", 'yellow'))
         method = 'search'
 
+    solve_time = None   # ILP wall-clock seconds, reported in the summary
     if method == 'ilp':
         if not a.json:
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
+        _t0 = time.perf_counter()
         builds = solve_ilp(cons, count=count, rounding=rounding, nice=nice, match=match,
                            minimize_vocations=a.minimize_vocations, base_st=base_st,
                            allowed=allowed, maximize=maximize, minimize=minimize,
                            bias_tiers=bias_tiers,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
-                           start_pool=start_pool)
+                           start_pool=start_pool, verbose=a.verbose_cbc and not a.json)
+        solve_time = time.perf_counter() - _t0
         if not builds:
             if a.json:
                 print(json.dumps({
@@ -1345,11 +1355,13 @@ def main():
                     "solver": method,
                     "infeasible": True,
                     "message": "no build satisfies these constraints (proven by the ILP solver)",
+                    "solve_time_sec": round(solve_time, 3),
                     "builds": [],
                 }, indent=2))
             else:
                 print(c(f"\n{GLYPH['bad']} INFEASIBLE", 'bold', 'red') +
                       ": no build satisfies these constraints (proven by the ILP solver).")
+                print(c(f"solve time: {solve_time:.3f}s", 'dim'))
             return
     else:
         if not a.json:
@@ -1399,6 +1411,7 @@ def main():
             "solver": method,
             "requested": count,
             "found": len(builds),
+            "solve_time_sec": round(solve_time, 3) if solve_time is not None else None,
             "builds": [build_to_dict(b) for b in builds],
         }
         print(json.dumps(doc, indent=2))
@@ -1409,6 +1422,8 @@ def main():
         print_build(i, b, cons, rounding, nice, weight=a.weight, bias_tiers=bias_tiers)
     if len(builds) < count:
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
+    if solve_time is not None:
+        print(c(f"\nsolve time: {solve_time:.3f}s", 'dim'))
 
 if __name__ == '__main__':
     try:
