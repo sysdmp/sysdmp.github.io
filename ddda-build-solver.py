@@ -390,7 +390,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
 
 def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=False,
-              init_st=None, allowed=None, bias=(), dump=None):
+              init_st=None, allowed=None, bias=(), dump=()):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -421,9 +421,10 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
     maximized, frozen at its optimum, then the next, and so on. An empty
     sequence (default) just maximizes the total stat sum (the "balance" mode).
 
-    `dump`: optional stat name to minimize, ranked just above the total-stat
-    maximization (but below all `bias` stats). Other constraints still hold,
-    and total stats are still maximized as the next priority.
+    `dump`: an ordered sequence of stat names to minimize, highest priority
+    first, via the same sequential lexicographic optimization as `bias` but
+    minimizing. Ranked below all `bias` stats and above the total-stat
+    maximization. Other constraints still hold.
     """
     perfect = set(perfect)
     neat = set(neat)
@@ -494,23 +495,19 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
-        #  2. --dump STAT (when set): minimize that stat; above the general sum.
-        #  3. maximize total final stats, so among otherwise-equal builds the one
+        #  2. maximize total final stats, so among otherwise-equal builds the one
         #     that leaves no stat lower is preferred (e.g. higher HP wins).
-        #  4. cosmetic tie-breakers: in 1->10 prefer mage; in 10->100 discourage
+        #  3. cosmetic tie-breakers: in 1->10 prefer mage; in 10->100 discourage
         #     mage and encourage sorcerer.
-        # The --bias stats sit ABOVE all of this and are handled by a separate
-        # lexicographic pre-pass below (each maximized in turn, then pinned).
-        # Fighter start is preferred separately, by trying starts in BASIC order
-        # (fighter first) and stopping once `count` builds are found.
-        W_VOC  = 10**9   # per used vocation; dwarfs the dump term
-        W_DUMP = 10**6   # per dumped-stat point; dwarfs the total-stat sum
+        # The --bias / --dump stats sit ABOVE all of this and are handled by a
+        # separate lexicographic pre-pass below (each optimized in turn, then
+        # pinned). Fighter start is preferred separately, by trying starts in
+        # BASIC order (fighter first) and stopping once `count` builds are found.
+        W_VOC  = 10**9   # per used vocation; dominant
         W_STAT = 10**3   # per stat point; dwarfs the cosmetic prefs (magnitude < 200)
         prefs = -x10['mage'] + x100['mage'] - x100['sorcerer']
         total_stats = pulp.lpSum(exprs[k] for k in STATS)
         base_objective = -W_STAT * total_stats + prefs
-        if dump is not None:
-            base_objective = W_DUMP * exprs[dump] + base_objective
 
         if minimize_vocations:
             # A vocation is "used" if it receives any level in any tier. Bind a
@@ -524,18 +521,26 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
                     prob += xs[v] <= U * used[v]
             base_objective = W_VOC * pulp.lpSum(used.values()) + base_objective
 
-        # --bias lexicographic pre-pass: maximize each biased stat in priority
-        # order, freezing each at its optimum before moving to the next, so e.g.
+        # --bias / --dump lexicographic pre-pass: optimize each listed stat in
+        # priority order, freezing each at its optimum before moving on. All
+        # --bias stats (maximize) rank above all --dump stats (minimize), so e.g.
         # `--bias attack,defense` maxes attack, then maxes defense without giving
-        # up any attack. Skipped entirely when no bias stats are given.
+        # up any attack; a following `--dump mattack` then minimizes mattack
+        # without touching either. Skipped when both lists are empty.
+        # Each entry is (stat, sense) where sense=+1 maximizes, -1 minimizes.
+        lex_goals = [(s, +1) for s in bias] + [(s, -1) for s in dump]
         infeasible_start = False
-        for bstat in bias:
-            prob.setObjective(-exprs[bstat])  # minimize negative == maximize
+        for stat, sense in lex_goals:
+            prob.setObjective(-sense * exprs[stat])  # minimize -> max/min per sense
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
             if pulp.LpStatus[prob.status] != "Optimal":
                 infeasible_start = True
                 break
-            prob += exprs[bstat] >= round(exprs[bstat].value())  # pin the optimum
+            opt = round(exprs[stat].value())
+            if sense > 0:
+                prob += exprs[stat] >= opt   # pin maximized optimum
+            else:
+                prob += exprs[stat] <= opt   # pin minimized optimum
         if infeasible_start:
             continue  # this start vocation cannot satisfy the constraints
 
@@ -641,9 +646,10 @@ def parse_args():
                               "defense without giving up attack. Empty (default) just\n"
                               "maximizes the total stat sum.\n"
                               "stats: " + ','.join(STATS))
-    g_goals.add_argument('--dump', choices=STATS, default=None, metavar='STAT',
-                         help="minimize this stat above all else (constraints\n"
-                              "still hold; total stats still maximized next)\n"
+    g_goals.add_argument('--dump', type=str, default='', metavar='STATS',
+                         help="comma-separated stats to minimize, highest priority\n"
+                              "first (constraints still hold; ranked below --bias,\n"
+                              "above the total stat sum)\n"
                               "stats: " + ','.join(STATS))
 
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
@@ -862,9 +868,20 @@ def main():
     if len(bias) != len(set(bias)):
         fail(f"--bias lists a stat more than once: {a.bias}")
         return
+    # --dump: ordered list of stats to minimize (highest priority first).
+    dump = parse_stat_list(a.dump)
+    bad = [s for s in dump if s not in STATS]
+    if bad:
+        fail(f"unknown stat(s) in --dump: {','.join(bad)}; choices: {','.join(STATS)}")
+        return
+    if len(dump) != len(set(dump)):
+        fail(f"--dump lists a stat more than once: {a.dump}")
+        return
     # --bias and --dump cannot target the same stat (maximize vs minimize).
-    if a.dump is not None and a.dump in bias:
-        fail(f"--bias and --dump both target '{a.dump}' (cannot maximize and minimize the same stat)")
+    clash = set(bias) & set(dump)
+    if clash:
+        fail(f"--bias and --dump both target: {','.join(sorted(clash))} "
+             "(cannot maximize and minimize the same stat)")
         return
 
     # --match: parse "a=b,c=d" into a list of (stat_a, stat_b) pairs.
@@ -969,7 +986,7 @@ def main():
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         builds = solve_ilp(cons, count=count, perfect=perfect, neat=neat, match=match,
                            minimize_vocations=a.minimize_vocations, init_st=init_st,
-                           allowed=allowed, bias=bias, dump=a.dump)
+                           allowed=allowed, bias=bias, dump=dump)
         if not builds:
             if a.json:
                 print(json.dumps({
@@ -995,7 +1012,7 @@ def main():
                 print(c("\nnote: --minimize-vocations is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             if bias:
                 print(c("\nnote: --bias is only supported by the ILP solver; ignoring it for search.", 'yellow'))
-            if a.dump is not None:
+            if dump:
                 print(c("\nnote: --dump is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             print(c("\nsolver: ", 'dim') + c("search (stochastic hill-climb)", 'yellow'))
         builds = run_search(cons, a, count=count, init_st=init_st, allowed=allowed)
@@ -1016,7 +1033,7 @@ def main():
             "pawn": a.pawn,
             "excluded_vocations": PAWN_EXCLUDED if a.pawn else [],
             "bias": bias,
-            "dump": a.dump,
+            "dump": dump,
             "solver": method,
             "requested": count,
             "found": len(builds),
