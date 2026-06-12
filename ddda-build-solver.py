@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 sysdmp
 """ddda-build-solver: Dragon's Dogma: Dark Arisen level-200 build solver.
 
 Finds character builds that meet target stat requirements (HP, stamina, attack,
