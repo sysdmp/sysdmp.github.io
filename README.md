@@ -100,12 +100,12 @@ found 1 build(s):
 
 ====================================================
  build 1   [OK] all requirements met
- start vocation: fighter
 ====================================================
                              leveling plan
 +----------+--------+---------------------------------------------------+
 | range    | levels | vocations                                         |
 +----------+--------+---------------------------------------------------+
+| start    |      - | fighter                                           |
 | 1->10    |      9 | mage x9                                           |
 | 10->100  |     90 | fighter x87  sorcerer x3                          |
 | 100->200 |    100 | strider x15  mage x22  sorcerer x52  assassin x11 |

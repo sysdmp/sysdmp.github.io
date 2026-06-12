@@ -799,14 +799,14 @@ def print_build(idx, build, cons, rounding=None, nice=()):
         else c(f"{GLYPH['bad']} closest found (penalty {p:g})", 'bold', 'red')
     print(f"\n{c(GLYPH['heavy']*52,'cyan')}")
     print(f" {head}   {status}")
-    print(f" start vocation: {c(start,'magenta','bold')}")
     print(f"{c(GLYPH['heavy']*52,'cyan')}")
 
-    # leveling plan table
+    # leveling plan table (start vocation is the first row)
     a = GLYPH['arrow']
     plan = render_table(
         ["range", "levels", "vocations"],
         [
+            [c("start",'yellow'),      c(GLYPH['dash'],'dim'), c(start,'magenta','bold')],
             [c(f"1{a}10",'yellow'),    c("9",'dim'),   _fmt_levels(c10)],
             [c(f"10{a}100",'yellow'),  c("90",'dim'),  _fmt_levels(c100)],
             [c(f"100{a}200",'yellow'), c("100",'dim'), _fmt_levels(c200)],
