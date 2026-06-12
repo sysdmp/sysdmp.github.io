@@ -800,7 +800,7 @@ def _fmt_levels(counts):
     items = [(v, counts[v]) for v in VOC_ORDER if counts.get(v, 0) > 0]
     return '  '.join(f"{_color_voc(v)} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
 
-def print_build(idx, build, cons, rounding=None, nice=()):
+def print_build(idx, build, cons, rounding=None, nice=(), weight=None):
     """Print one build as a colored header plus leveling-plan and final-stats tables.
 
     Args:
@@ -812,6 +812,8 @@ def print_build(idx, build, cons, rounding=None, nice=()):
             "x100") in the requirement column.
         nice: iterable of stats in "nice" mode, whose max bound is likewise
             ignored (the value is annotated as "nice" in the requirement column).
+        weight: optional weight-class name; when given, its class / range /
+            base stamina / regen are appended as rows to the final-stats table.
     """
     p,start,c10,c100,c200,s = build
     rounding = dict(rounding or {})
@@ -870,6 +872,16 @@ def print_build(idx, build, cons, rounding=None, nice=()):
                  c('hp + st', 'dim')])
     rows.append([c('total', 'yellow'), c(str(grand), 'yellow', 'bold'),
                  c('all stats', 'dim')])
+    # weight class block (merged in from the former standalone table)
+    if weight is not None:
+        regen, regen_pct = WEIGHT_STAREGEN[weight]
+        rows.append([sep, sep, sep])
+        rows.append([c('weight', 'cyan'), c(weight, 'magenta', 'bold'),
+                     c(WEIGHT_RANGES[weight], 'dim')])
+        rows.append([c('base st', 'cyan'), c(str(WEIGHTS[weight]), 'bold'),
+                     c('base stamina', 'dim')])
+        rows.append([c('st regen', 'cyan'), c(f"{regen}/s", 'bold'),
+                     c(f"{regen_pct} of M", 'dim')])
     print(render_table(
         ["stat", "value", "requirement"],
         rows, aligns=['left', 'right', 'left'], title="final stats",
@@ -1030,13 +1042,6 @@ def main():
 
     if not a.json:
         print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
-        print(render_table(
-            ["weight", "range", "base stamina", "stamina regen"],
-            [[c(a.weight,'magenta','bold'), WEIGHT_RANGES[a.weight],
-              c(str(base_st),'bold'), f"{regen}/s ({regen_pct})"]],
-            aligns=['center','left','right','left'],
-            title="character weight class",
-        ))
         if a.pawn:
             print(c("pawn build: ", 'bold') +
                   c("excluding " + ', '.join(PAWN_EXCLUDED), 'yellow'))
@@ -1171,7 +1176,7 @@ def main():
 
     print(c(f"\nfound {len(builds)} build(s)", 'bold') + (c(f" (requested {count})", 'dim') if count > 1 else "") + ":")
     for i, b in enumerate(builds, 1):
-        print_build(i, b, cons, rounding, nice)
+        print_build(i, b, cons, rounding, nice, weight=a.weight)
     if len(builds) < count:
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
 

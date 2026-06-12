@@ -85,13 +85,13 @@ Tighten or relax any stat with `--<stat>-min` / `--<stat>-max`, pin one exactly 
 
 ## Output
 
-By default the tool prints colored ASCII/Unicode tables: your weight class, the
-target constraints (with a single `round` column showing each stat's rounding/nice
-mode), and for each build a **leveling plan** (which vocation to level in each range,
-followed by the total **vocation switches** the plan requires) and the resulting
-**final stats** (green if a stat meets its requirement, red if not). The final-stats
-table ends with three summary rows: **combat** (attack+mattack+defense+mdefense),
-**vitals** (hp+st), and **total** (all six).
+By default the tool prints colored ASCII/Unicode tables: the target constraints (with
+a single `round` column showing each stat's rounding/nice mode), and for each build a
+**leveling plan** (start vocation, which vocation to level in each range, and the total
+**vocation switches** the plan requires) and the resulting **final stats** (green if a
+stat meets its requirement, red if not). The final-stats table ends with the summary
+rows **combat** (attack+mattack+defense+mdefense), **vitals** (hp+st), and **total**
+(all six), followed by the **weight class** (class, base stamina, stamina regen).
 
 ```text
 solver: ILP (exact)
@@ -125,6 +125,10 @@ found 1 build(s):
 | combat   |  1784 | attack+mattack+defense+mdefense |
 | vitals   |  7985 | hp + st                         |
 | total    |  9769 | all stats                       |
+| ---      |   --- | ---                             |
+| weight   |     M | 70-89kg                         |
+| base st  |   540 | base stamina                    |
+| st regen |  42/s | 100% of M                       |
 +----------+-------+---------------------------------+
 ```
 
