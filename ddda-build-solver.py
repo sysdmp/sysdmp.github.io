@@ -768,6 +768,29 @@ def _clean(c):
 
 VOC_ORDER = ['fighter','strider','mage','warrior','ranger','sorcerer','mknight','assassin','marcher']
 
+# Per-vocation display colors. A single style colors the whole word; a 2-tuple
+# splits the word in half — first style on the first half, second on the rest
+# (order matters).
+VOC_COLORS = {
+    'fighter':  'red',
+    'strider':  'yellow',
+    'mage':     'blue',
+    'warrior':  'red',
+    'ranger':   'yellow',
+    'sorcerer': 'blue',
+    'mknight':  ('red', 'blue'),
+    'assassin': ('red', 'yellow'),
+    'marcher':  ('yellow', 'blue'),
+}
+
+def _color_voc(v):
+    """Color a vocation name per VOC_COLORS; dual-color names split at the midpoint."""
+    style = VOC_COLORS.get(v, 'magenta')
+    if isinstance(style, tuple):
+        mid = len(v) // 2
+        return c(v[:mid], style[0]) + c(v[mid:], style[1])
+    return c(v, style)
+
 def _fmt_levels(counts):
     """Format a level distribution for display, e.g. 'sorcerer x100'.
 
@@ -775,7 +798,7 @@ def _fmt_levels(counts):
     returns a dimmed dash when the distribution is empty.
     """
     items = [(v, counts[v]) for v in VOC_ORDER if counts.get(v, 0) > 0]
-    return '  '.join(f"{c(v,'magenta')} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
+    return '  '.join(f"{_color_voc(v)} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
 
 def print_build(idx, build, cons, rounding=None, nice=()):
     """Print one build as a colored header plus leveling-plan and final-stats tables.
@@ -806,7 +829,7 @@ def print_build(idx, build, cons, rounding=None, nice=()):
     plan = render_table(
         ["range", "levels", "vocations"],
         [
-            [c("start",'yellow'),      c(GLYPH['dash'],'dim'), c(start,'magenta','bold')],
+            [c("start",'yellow'),      c(GLYPH['dash'],'dim'), _color_voc(start)],
             [c(f"1{a}10",'yellow'),    c("9",'dim'),   _fmt_levels(c10)],
             [c(f"10{a}100",'yellow'),  c("90",'dim'),  _fmt_levels(c100)],
             [c(f"100{a}200",'yellow'), c("100",'dim'), _fmt_levels(c200)],
