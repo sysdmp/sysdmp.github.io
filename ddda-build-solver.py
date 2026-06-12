@@ -789,6 +789,10 @@ def main():
         if bad:
             fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)},all")
             return
+    # An exact value pins a single value, which overrides --perfect/--neat for
+    # that stat (so e.g. `--perfect all --attack 666` uses exactly 666 for attack).
+    perfect = [s for s in perfect if s not in exact]
+    neat = [s for s in neat if s not in exact]
     both = set(perfect) & set(neat)
     if both:
         fail(f"stat(s) in both --perfect and --neat: {','.join(sorted(both))}")
