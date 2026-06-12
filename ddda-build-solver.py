@@ -187,6 +187,9 @@ adv = {
 }
 
 STATS = ['hp','st','attack','defense','mattack','mdefense']
+# Alternative (British) spellings accepted wherever a stat name is given, on the
+# command line and inside comma-separated stat lists. Maps alias -> canonical.
+STAT_ALIASES = {'defence': 'defense', 'mdefence': 'mdefense'}
 BASIC = list(basic.keys())
 ALL = list(basic.keys()) + list(adv.keys())
 # Advanced vocations disabled by --pawn (vocations a pawn cannot take).
@@ -629,6 +632,15 @@ def parse_args():
                              help=f'minimum {stat} (default: {lo})')
         g_stats.add_argument(f'--{stat}-max', type=int, default=None, metavar='N',
                              help=f'maximum {stat} (default: {hi if hi is not None else "none"})')
+    # Accept British-spelling aliases for the same stat (e.g. --defence -> defense),
+    # writing to the canonical dest so the rest of main() is unaffected.
+    for alias, canon in STAT_ALIASES.items():
+        g_stats.add_argument(f'--{alias}', dest=canon, type=int, default=None,
+                             metavar='N', help=f'alias for --{canon}')
+        g_stats.add_argument(f'--{alias}-min', dest=f'{canon}_min', type=int,
+                             default=None, metavar='N', help=argparse.SUPPRESS)
+        g_stats.add_argument(f'--{alias}-max', dest=f'{canon}_max', type=int,
+                             default=None, metavar='N', help=argparse.SUPPRESS)
     g_stats.add_argument('--no-default', action='store_true',
                          help='ignore the built-in default stat minimums;\n'
                               'only constraints you pass explicitly apply')
@@ -877,9 +889,11 @@ def main():
 
         'all' -> every stat; 'combat' -> the four combat stats (the ones the
         balanced objective favors over hp/st: attack, defense, mattack, mdefense).
+        British-spelling aliases (defence/mdefence) are normalized to canonical.
         """
         items = []
         for s in (x.strip() for x in raw.split(',') if x.strip()):
+            s = STAT_ALIASES.get(s, s)
             if s == 'all':
                 items.extend(STATS)
             elif s == 'combat':
@@ -942,7 +956,7 @@ def main():
         if spec.count('=') != 1:
             fail(f"bad --match pair '{spec}'; expected form 'stat=stat'")
             return
-        a_stat, b_stat = (x.strip() for x in spec.split('='))
+        a_stat, b_stat = (STAT_ALIASES.get(x.strip(), x.strip()) for x in spec.split('='))
         unknown = [x for x in (a_stat, b_stat) if x not in STATS]
         if unknown:
             fail(f"unknown stat(s) in --match: {','.join(unknown)}; choices: {','.join(STATS)}")
