@@ -381,7 +381,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
 
 def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=False,
-              init_st=None, allowed=None):
+              init_st=None, allowed=None, bias='balance'):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -406,6 +406,10 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
     `allowed`: optional iterable restricting which vocations may be used in the
     10->100 and 100->200 ranges (defaults to all). Basic vocations are always
     permitted in the 1->10 range.
+
+    `bias`: which stat to favor when multiple feasible builds exist. 'balance'
+    (default) maximizes the sum of all stats; a specific stat name maximizes
+    that stat above all else (other constraints still hold).
     """
     perfect = set(perfect)
     neat = set(neat)
@@ -476,17 +480,22 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
 
         # Objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
-        #  2. maximize total final stats, so among otherwise-equal builds the one
+        #  2. --bias STAT (when not 'balance'): maximize that one stat above all
+        #     else; ranked below vocations but above the general stat sum.
+        #  3. maximize total final stats, so among otherwise-equal builds the one
         #     that leaves no stat lower is preferred (e.g. higher HP wins).
-        #  3. cosmetic tie-breakers: in 1->10 prefer mage; in 10->100 discourage
+        #  4. cosmetic tie-breakers: in 1->10 prefer mage; in 10->100 discourage
         #     mage and encourage sorcerer.
         # (Was pure feasibility: prob += 0.) Fighter start is preferred separately,
         # by trying starts in BASIC order (fighter first) and stopping at `count`.
-        W_VOC  = 10**9   # per used vocation; dwarfs the max possible stat sum
+        W_VOC  = 10**9   # per used vocation; dwarfs the biased-stat term
+        W_BIAS = 10**6   # per biased-stat point; dwarfs the total-stat sum
         W_STAT = 10**3   # per stat point; dwarfs the cosmetic prefs (magnitude < 200)
         prefs = -x10['mage'] + x100['mage'] - x100['sorcerer']
         total_stats = pulp.lpSum(exprs[k] for k in STATS)
         objective = -W_STAT * total_stats + prefs
+        if bias != 'balance':
+            objective = -W_BIAS * exprs[bias] + objective
 
         if minimize_vocations:
             # A vocation is "used" if it receives any level in any tier. Bind a
@@ -601,6 +610,11 @@ def parse_args():
     g_goals.add_argument('--minimize-vocations', action='store_true',
                          help="prefer feasible builds that use fewer distinct\n"
                               "vocations (fewer vocation changes)")
+    g_goals.add_argument('--bias', choices=['balance'] + STATS, default='balance', metavar='STAT',
+                         help="which stat to favor among feasible builds:\n"
+                              "balance = maximize total stats (default)\n"
+                              "<stat>  = maximize that stat above all else\n"
+                              "stats: " + ','.join(STATS))
 
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
     g_char.add_argument('--weight', choices=list(WEIGHTS), default='M', metavar='CLASS',
@@ -903,7 +917,7 @@ def main():
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         builds = solve_ilp(cons, count=count, perfect=perfect, neat=neat, match=match,
                            minimize_vocations=a.minimize_vocations, init_st=init_st,
-                           allowed=allowed)
+                           allowed=allowed, bias=a.bias)
         if not builds:
             if a.json:
                 print(json.dumps({
@@ -927,6 +941,8 @@ def main():
                 print(c("\nnote: --match is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             if a.minimize_vocations:
                 print(c("\nnote: --minimize-vocations is only supported by the ILP solver; ignoring it for search.", 'yellow'))
+            if a.bias != 'balance':
+                print(c("\nnote: --bias is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             print(c("\nsolver: ", 'dim') + c("search (stochastic hill-climb)", 'yellow'))
         builds = run_search(cons, a, count=count, init_st=init_st, allowed=allowed)
 
@@ -945,6 +961,7 @@ def main():
             "match": [[a_s, b_s] for a_s, b_s in match],
             "pawn": a.pawn,
             "excluded_vocations": PAWN_EXCLUDED if a.pawn else [],
+            "bias": a.bias,
             "solver": method,
             "requested": count,
             "found": len(builds),
