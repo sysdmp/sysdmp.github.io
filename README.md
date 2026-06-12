@@ -88,9 +88,11 @@ Tighten or relax any stat with `--<stat>-min` / `--<stat>-max`, pin one exactly 
 ## Output
 
 By default the tool prints colored ASCII/Unicode tables: your weight class, the
-target constraints, and for each build a **leveling plan** (which vocation to level in
-each range) and the resulting **final stats** (green if a stat meets its requirement,
-red if not).
+target constraints (with a single `round` column showing each stat's rounding/neat
+mode), and for each build a **leveling plan** (which vocation to level in each range)
+and the resulting **final stats** (green if a stat meets its requirement, red if not).
+The final-stats table ends with three summary rows: **combat** (attack+mattack+
+defense+mdefense), **vitals** (hp+st), and **total** (all six).
 
 ```text
 solver: ILP (exact)
@@ -101,23 +103,29 @@ found 1 build(s):
  build 1   [OK] all requirements met
  start vocation: fighter
 ====================================================
-                              leveling plan
-+----------+--------+-----------------------------------------------------+
-| range    | levels | vocations                                           |
-+----------+--------+-----------------------------------------------------+
-| 1->10    |      9 | strider x1  mage x8                                  |
-| 10->100  |     90 | fighter x40  sorcerer x50                           |
-| 100->200 |    100 | strider x30  warrior x53  sorcerer x15  assassin x2 |
-+----------+--------+-----------------------------------------------------+
-          final stats
-+----------+-------+-------------+
-| stat     | value | requirement |
-+----------+-------+-------------+
-| hp       |  3506 | >=3500      |
-| st       |  3500 | >=3500      |
-| attack   |   501 | >=500       |
-| ...      |       |             |
-+----------+-------+-------------+
+                      leveling plan
++----------+--------+--------------------------------------+
+| range    | levels | vocations                            |
++----------+--------+--------------------------------------+
+| 1->10    |      9 | mage x9                              |
+| 10->100  |     90 | fighter x75  ranger x14  sorcerer x1 |
+| 100->200 |    100 | strider x44  mage x5  sorcerer x51   |
++----------+--------+--------------------------------------+
+                    final stats
++----------+-------+---------------------------------+
+| stat     | value | requirement                     |
++----------+-------+---------------------------------+
+| hp       |  4513 | >=3500                          |
+| st       |  3500 | >=3500                          |
+| attack   |   500 | >=500                           |
+| defense  |   480 | >=300                           |
+| mattack  |   500 | >=500                           |
+| mdefense |   300 | >=300                           |
+| ---      |   --- | ---                             |
+| combat   |  1780 | attack+mattack+defense+mdefense |
+| vitals   |  8013 | hp + st                         |
+| total    |  9793 | all stats                       |
++----------+-------+---------------------------------+
 ```
 
 Pass `--json` for machine-readable output instead (see [Output control](#output-control)).
@@ -139,26 +147,50 @@ For each of the six stats (`hp`, `st`, `attack`, `defense`, `mattack`, `mdefense
 Omit a bound to leave it unconstrained. Defaults: `hp`/`st` min 3500, `attack`/`mattack`
 min 500, `defense`/`mdefense` min 300, no maximums.
 
+`--no-default` ignores the built-in default minimums entirely — only the constraints
+you pass explicitly apply.
+
 ### ILP-only goals
 
 These are honored only by the exact (`ilp`) solver; the `search` solver ignores them
 with a warning.
 
+**Rounding modes** — each forces the listed stats to a "round" value. They drop the
+stat's max bound and keep its min as a floor. A stat may be in at most one rounding
+mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
+
+| Flag                  | Forces each listed stat to…                                                  |
+|-----------------------|------------------------------------------------------------------------------|
+| `--perfect STATS`     | a **multiple of 100** (e.g. 500).                                            |
+| `--half-perfect STATS`| a **multiple of 50** (e.g. 450).                                            |
+| `--decimal STATS`     | a **multiple of 10** (e.g. 430).                                            |
+| `--neat STATS`        | a **"neat" number**: `666`, ending in `42` or `69`, all-same-digit (`444`), or a multiple of 100. |
+
+**Other goals:**
+
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
-| `--perfect STATS`       | Comma-separated stats forced to a **multiple of 100**. The max bound is dropped; min kept as a floor. Pass `all` for every stat. |
-| `--neat STATS`          | Comma-separated stats forced to a **"neat" number**: `666`, ending in `42` or `69`, all-same-digit (e.g. `444`), or a multiple of 100. Max dropped, min kept. Pass `all` for every stat. |
 | `--match PAIRS`         | Comma-separated stat pairs forced to **equal** final values, e.g. `attack=mattack,defense=mdefense`. Each stat's own min/max still applies. |
-| `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). |
+| `--bias STATS`          | Comma-separated stats to **maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Empty (default) maximizes the total stat sum, with hp/st discounted (see below). |
+| `--dump STATS`          | Comma-separated stats to **minimize**, highest priority first. Ranked below `--bias`, above the total-stat maximization. |
+| `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the bias/dump/total objective. |
 
-For `--perfect` and `--neat`, the special value `all` expands to every stat — so
-`--neat all` is shorthand for `--neat hp,st,attack,defense,mattack,mdefense`.
+**Group keywords** — anywhere a `STATS` list is accepted (rounding modes, `--bias`,
+`--dump`), two shorthands expand to multiple stats:
+
+- `all` → every stat (`hp,st,attack,defense,mattack,mdefense`).
+- `combat` → the four combat stats (`attack,defense,mattack,mdefense`).
+
+**Balanced objective (no `--bias`):** by default the solver maximizes a *weighted*
+total of the final stats, with **hp and st discounted** (weight 0.1 vs 1.0 for the
+combat stats). hp/st have large raw values and grow cheaply, so this stops the
+balanced build from piling level-ups into them at the expense of combat stats.
 
 ### Character
 
 | Flag             | Meaning                                                                 |
 |------------------|-------------------------------------------------------------------------|
-| `--weight CLASS` | Weight class, which sets initial stamina and stamina-regen rate. One of `SS`, `S`, `M`, `L`, `LL` (default `M`). |
+| `--weight CLASS` | Weight class, which sets initial stamina and stamina-regen rate. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
 | `--pawn`         | Build for a pawn: disallow the vocations a pawn cannot take (`mknight`, `marcher`, `assassin`). |
 
 | Class | Body weight     | Init stamina | Stamina regen |
@@ -199,11 +231,13 @@ first) and enumerates distinct builds via no-good cuts when `--count > 1`. The
 | `--no-color`  | Disable ANSI colors (also auto-disabled when output is not a terminal).  |
 | `--charset`   | Table characters: `auto` (by locale, default), `unicode`, or `ascii`.    |
 
-The JSON document includes the weight class, the full constraints (with `exact` /
-`perfect` / `neat` flags), the `match` pairs, the `pawn` flag and any
-`excluded_vocations`, the solver used, and a `builds` array. Each build reports its
-`start` vocation, per-range `levels`, `final_stats`, and a `feasible` flag. Stat keys
-stay lowercase (`hp`, `attack`, `mattack`, …) regardless of display formatting.
+The JSON document includes the weight class, the full constraints (with `exact`,
+`perfect`, `half_perfect`, `decimal`, and `neat` flags per stat), the `match` pairs,
+the `pawn` flag and any `excluded_vocations`, the `bias` and `dump` lists, the solver
+used, and a `builds` array. Each build reports its `start` vocation, per-range
+`levels`, `final_stats`, a `totals` object (`combat` / `vitals` / `all`), and a
+`feasible` flag. Stat keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of
+display formatting.
 
 ## Examples
 
@@ -225,6 +259,12 @@ $ ddda-build-solver.py --weight LL --neat hp --json
 
 # Force every final stat to a "neat" number
 $ ddda-build-solver.py --neat all
+
+# Maximize attack first, then defense (priority order)
+$ ddda-build-solver.py --bias attack,defense
+
+# Favor combat stats, minimize HP, no built-in default floors
+$ ddda-build-solver.py --no-default --bias combat --dump hp
 ```
 
 ## Notes & caveats

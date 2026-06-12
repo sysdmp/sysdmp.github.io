@@ -606,7 +606,8 @@ def parse_args():
                       'bold', 'cyan') +
                     "  Find a build whose final stats meet your targets. Each stat takes an\n"
                     "  optional min and/or max (omit one to leave it unbounded), or an exact\n"
-                    "  value. The ILP solver also supports perfect / neat / match goals.",
+                    "  value. The ILP solver adds extra goals: rounding (perfect / half-\n"
+                    "  perfect / decimal / neat), match, bias / dump, and minimize-vocations.",
         epilog=c("\nexamples:\n", 'bold', 'yellow') +
                "  # minimum HP and stamina, everything else default\n"
                "  ddda-build-solver.py --hp-min 3600 --st-min 4000\n\n"
@@ -836,9 +837,10 @@ def build_to_dict(build):
 def main():
     """CLI entry point: parse args, run the chosen solver, and print results.
 
-    Reads constraints, weight class, and the perfect-stat list from the command
-    line, dispatches to the ILP or search solver, and emits either a JSON
-    document (``--json``) or colored tables.
+    Parses and validates the stat bounds, rounding/neat modes, match pairs,
+    bias/dump priorities, weight class, and pawn restriction, dispatches to the
+    ILP or search solver, and emits either a JSON document (``--json``) or
+    colored tables.
     """
     a = parse_args()
     if a.no_color:
