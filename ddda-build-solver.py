@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 sysdmp
-"""ddda-build-solver: Dragon's Dogma: Dark Arisen level-200 build solver.
+"""ddda-build-solver: Dragon's Dogma™: Dark Arisen level-200 build solver.
 
 Finds character builds that meet target stat requirements (HP, stamina, attack,
 defense, magick attack, magick defense) at level 200, given the game's
@@ -602,7 +602,7 @@ def parse_args():
 
     ap = argparse.ArgumentParser(
         formatter_class=_SpacedHelpFormatter,
-        description=c("\n  \U0001f409  ddda-build-solver \U00002014 Dragon's Dogma level-200 build solver\n",
+        description=c("\n  \U0001f409  ddda-build-solver \U00002014 Dragon's Dogma™ level-200 build solver\n",
                       'bold', 'cyan') +
                     "  Find a build whose final stats meet your targets. Each stat takes an\n"
                     "  optional min and/or max (omit one to leave it unbounded), or an exact\n"

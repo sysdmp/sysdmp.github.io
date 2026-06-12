@@ -1,6 +1,6 @@
 # ddda-build-solver
 
-A command-line solver for **Dragon's Dogma: Dark Arisen** character builds. Tell it
+A command-line solver for **Dragon's Dogma™: Dark Arisen** character builds. Tell it
 the final stats you want at level 200 — minimums, maximums, exact values, or fancier
 goals — and it computes which vocation to level in, and for how long, to get there.
 
@@ -32,7 +32,7 @@ $ ddda-build-solver.py --hp-min 3600 --st-min 4000 --match attack=mattack
 
 ## How it works
 
-In Dragon's Dogma, your six core stats grow automatically each level, and how much
+In Dragon's Dogma™, your six core stats grow automatically each level, and how much
 they grow depends on the **vocation** you are leveling as. The game has three growth
 ranges with different per-level gains:
 
