@@ -274,8 +274,14 @@ $ ddda-build-solver.py --no-default --bias combat --dump hp
 - **Final level is always 200.** The three ranges (9 + 90 + 100 levels) are fixed.
 - **Infeasible constraints are reported as such.** The ILP solver proves when no build
   can satisfy your targets, rather than silently returning a near-miss.
-- **`--minimize-vocations` counts distinct vocations**, not the number of in-game
-  vocation switches; a vocation used in two ranges counts once.
+- **"vocation switches" and `--minimize-vocations` measure different things.** The
+  *vocation switches* line counts **leveling blocks** — the distinct vocations in each
+  of the three ranges, summed, minus one. A vocation that appears in two ranges counts
+  as two blocks (you switch away and back), so the number is an upper bound on real
+  switches and won't collapse a vocation that happens to continue across a range
+  boundary. `--minimize-vocations`, by contrast, minimizes the count of **distinct
+  vocations used at all** (a reused vocation counts once) — so it can lower the
+  distinct-vocation count without lowering the switches line by the same amount.
 - **`--match` is transitive** in the constraints display: `a=b,b=c` ties all three, and
   the shown min/max for each becomes the tightest (intersected) bound of the group.
 - **The growth data assumes the patched (non-vanilla) Magick Archer `to200` values.**
