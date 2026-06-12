@@ -175,13 +175,14 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
 | `--match PAIRS`         | Comma-separated stat pairs forced to **equal** final values, e.g. `attack=mattack,defense=mdefense`. The keyword `all` expands to `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
-| `--bias STATS`          | Comma-separated stats to **maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Empty (default) maximizes the total stat sum, with hp/st discounted (see below). |
-| `--dump STATS`          | Comma-separated stats to **minimize**, highest priority first. Ranked below `--bias`, above the total-stat maximization. |
-| `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the bias/dump/total objective. |
+| `--bias STATS`          | Comma-separated stats to **softly favor**: each adds extra weight to its term in the total-stat objective, the first listed getting the largest boost and each later one less. A soft preference traded off against the other stats — e.g. `attack,mdefense` raises attack the most and mdefense some. |
+| `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Sits above the total-stat objective. |
+| `--minimize STATS`      | Comma-separated stats to **hard-minimize**, highest priority first. Ranked below `--maximize`, above the total-stat objective. |
+| `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the maximize/minimize/total objective. |
 | `--equal-weights`       | Value **hp/st equally** with the other stats in the balanced objective (by default they're discounted — see below). |
 
 **Group keywords** — anywhere a `STATS` list is accepted (rounding modes, `--bias`,
-`--dump`), two shorthands expand to multiple stats:
+`--maximize`, `--minimize`), two shorthands expand to multiple stats:
 
 - `all` → every stat (`hp,st,attack,defense,mattack,mdefense`).
 - `combat` → the four combat stats (`attack,defense,mattack,mdefense`).
@@ -239,7 +240,7 @@ first) and enumerates distinct builds via no-good cuts when `--count > 1`. The
 
 The JSON document includes the weight class, the full constraints (with `exact`,
 `perfect`, `half_perfect`, `decimal`, and `nice` flags per stat), the `match` pairs,
-the `pawn` flag and any `excluded_vocations`, the `bias` and `dump` lists, the solver
+the `pawn` flag and any `excluded_vocations`, the `bias` / `maximize` / `minimize` lists, the solver
 used, and a `builds` array. Each build reports its `start` vocation, per-range
 `levels`, `vocation_switches`, `final_stats`, a `totals` object (`combat` / `vitals` /
 `all`), and a `feasible` flag. Stat keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of
@@ -266,11 +267,11 @@ $ ddda-build-solver.py --weight LL --nice hp --json
 # Force every final stat to a "nice" number
 $ ddda-build-solver.py --nice all
 
-# Maximize attack first, then defense (priority order)
-$ ddda-build-solver.py --bias attack,defense
+# Hard-maximize attack first, then defense (priority order)
+$ ddda-build-solver.py --maximize attack,defense
 
-# Favor combat stats, minimize HP, no built-in default floors
-$ ddda-build-solver.py --no-default --bias combat --dump hp
+# Softly favor combat stats, hard-minimize HP, no built-in default floors
+$ ddda-build-solver.py --no-default --bias combat --minimize hp
 ```
 
 ## Notes & caveats

@@ -192,6 +192,14 @@ STATS = ['hp','st','attack','defense','mattack','mdefense']
 STAT_ALIASES = {'defence': 'defense', 'mdefence': 'mdefense'}
 BASIC = list(basic.keys())
 ALL = list(basic.keys()) + list(adv.keys())
+# Largest per-level gain for each stat across all vocations/tiers. Used to
+# normalize --bias boosts: stats grow at very different rates (hp ~40/lvl vs
+# mdefense ~5/lvl), so an un-normalized weight boost would favor fast-growing
+# stats. Dividing a boost by MAX_GAIN makes a unit of boost mean "the same
+# amount of leveling invested," so --bias priority follows the listed order.
+MAX_GAIN = {k: max(d[t][k] for d in (*basic.values(), *adv.values())
+                            for t in ('to10', 'to100', 'to200') if t in d)
+            for k in STATS}
 # Advanced vocations disabled by --pawn (vocations a pawn cannot take).
 PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
 # Divisor-based "rounding" modes: each forces a stat to a multiple of its
@@ -218,6 +226,12 @@ BALANCE_WEIGHTS = {
     'mattack':  1.0,
     'mdefense': 1.0,
 }
+# --bias adds extra weight to a stat in the objective's total. The i-th listed
+# stat (0-based) gets BIAS_BOOST_BASE * BIAS_BOOST_FALLOFF**i, normalized by the
+# stat's MAX_GAIN, added to its weight -- so earlier stats are favored more than
+# later ones and the priority order doesn't get distorted by growth rates.
+BIAS_BOOST_BASE = 10.0
+BIAS_BOOST_FALLOFF = 0.5
 
 # Character weight class sets base stamina. The data above assumes M (540).
 WEIGHTS = {'SS': 500, 'S': 520, 'M': 540, 'L': 560, 'LL': 580}
@@ -396,8 +410,8 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
 
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
-              minimize_vocations=False, base_st=None, allowed=None, bias=(), dump=(),
-              weights=None):
+              minimize_vocations=False, base_st=None, allowed=None,
+              maximize=(), minimize=(), bias=(), weights=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -425,15 +439,18 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     10->100 and 100->200 ranges (defaults to all). Basic vocations are always
     permitted in the 1->10 range.
 
-    `bias`: an ordered sequence of stat names to maximize, highest priority
+    `maximize`: an ordered sequence of stat names to maximize, highest priority
     first, via sequential lexicographic optimization: the first stat is
-    maximized, frozen at its optimum, then the next, and so on. An empty
-    sequence (default) just maximizes the total stat sum (the "balance" mode).
+    maximized, frozen at its optimum, then the next, and so on. This is a hard
+    ordering that sits above the weighted total-stat objective.
 
-    `dump`: an ordered sequence of stat names to minimize, highest priority
-    first, via the same sequential lexicographic optimization as `bias` but
-    minimizing. Ranked below all `bias` stats and above the total-stat
-    maximization. Other constraints still hold.
+    `minimize`: like `maximize` but minimizes each stat, in priority order.
+    Ranked below all `maximize` stats and above the total-stat objective.
+
+    `bias`: an ordered sequence of stat names to softly favor by adding extra
+    weight to them in the total-stat objective (the i-th listed stat gets the
+    largest boost, each later one less). Unlike `maximize`, this is a soft
+    preference traded off against the other stats, not a hard ordering.
 
     `weights`: per-stat weights for the balanced total-stat objective; defaults
     to BALANCE_WEIGHTS (hp/st discounted to 0.1). Pass all-1.0 weights to value
@@ -508,19 +525,25 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         relaxed = set(rounding) | nice
         eval_cons = {k: ((cons[k][0], None) if k in relaxed else cons[k]) for k in STATS}
 
+        # Per-stat objective weights: the base balance weights plus any --bias
+        # boost. The i-th biased stat adds BIAS_BOOST_BASE * FALLOFF**i, divided
+        # by the stat's MAX_GAIN so the boost rewards "leveling invested" rather
+        # than raw points -- otherwise fast-growing stats (hp) would dominate
+        # slow ones (mdefense) regardless of the listed order. Soft preference,
+        # traded off against other stats -- not a hard ordering.
+        eff_weights = dict(weights)
+        for i, stat in enumerate(bias):
+            eff_weights[stat] += BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** i) / MAX_GAIN[stat]
+
         # Base objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
-        #  2. maximize the weighted total of final stats (BALANCE_WEIGHTS), so the
-        #     balanced build favors raising combat stats over piling into hp/st.
-        # The --bias / --dump stats sit ABOVE all of this and are handled by a
-        # separate lexicographic pre-pass below (each optimized in turn, then
-        # pinned). Fighter start is preferred separately, by trying starts in
-        # BASIC order (fighter first) and stopping once `count` builds are found.
-        # No per-vocation cosmetic preferences: the stat totals and the supplied
-        # constraints alone dictate which vocations get leveled.
+        #  2. maximize the (bias-weighted) total of final stats.
+        # --maximize / --minimize sit ABOVE this via a lexicographic pre-pass
+        # below. Fighter start is preferred separately, by trying starts in BASIC
+        # order and stopping at `count`. No per-vocation cosmetic preferences.
         W_VOC  = 10**9   # per used vocation; dominant
         W_STAT = 10**3   # per (weighted) stat point
-        total_stats = pulp.lpSum(weights[k] * exprs[k] for k in STATS)
+        total_stats = pulp.lpSum(eff_weights[k] * exprs[k] for k in STATS)
         base_objective = -W_STAT * total_stats
 
         if minimize_vocations:
@@ -534,16 +557,14 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                     prob += xs[v] <= U * used[v]
             base_objective = W_VOC * pulp.lpSum(used.values()) + base_objective
 
-        # --bias / --dump lexicographic pre-pass: optimize each listed stat in
-        # priority order, freezing each at its optimum before moving on. All
-        # --bias stats (maximize) rank above all --dump stats (minimize), so e.g.
-        # `--bias attack,defense` maxes attack, then maxes defense without giving
-        # up any attack; a following `--dump mattack` then minimizes mattack
-        # without touching either. Skipped when both lists are empty.
-        # Each entry is (stat, sense) where sense=+1 maximizes, -1 minimizes.
-        lex_goals = [(s, +1) for s in bias] + [(s, -1) for s in dump]
+        # --maximize / --minimize lexicographic pre-pass: optimize each listed
+        # stat in priority order, freezing each at its optimum before moving on.
+        # All --maximize stats rank above all --minimize stats. Each entry is
+        # (stat, sense) where sense=+1 maximizes, -1 minimizes. Skipped when both
+        # lists are empty.
+        lex_goals = [(s, +1) for s in maximize] + [(s, -1) for s in minimize]
         infeasible_start = False
-        lex_opts = []   # the pinned bias/dump optima, in priority order
+        lex_opts = []   # the pinned optima, in priority order
         for stat, sense in lex_goals:
             prob.setObjective(-sense * exprs[stat])  # minimize -> max/min per sense
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
@@ -575,12 +596,12 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
             # Quality key mirroring the lexicographic objective (smaller = better),
             # so the winning start is chosen by stats/objective, not BASIC order:
             #  1. distinct vocation count, only when --minimize-vocations is set;
-            #  2. bias maximize -> -value / dump minimize -> +value, priority order;
-            #  3. the weighted stat total (maximize -> negate).
+            #  2. --maximize -> -value / --minimize -> +value, priority order;
+            #  3. the bias-weighted stat total (maximize -> negate).
             n_vocs = len({v for cc in (c10, c100, c200) for v, n in cc.items() if n > 0})
             voc_key = (n_vocs,) if minimize_vocations else ()
             lex_key = tuple(-opt if sense > 0 else opt for sense, opt in lex_opts)
-            wstat = sum(weights[k] * s[k] for k in STATS)
+            wstat = sum(eff_weights[k] * s[k] for k in STATS)
             quality = (voc_key, lex_key, -wstat)
             candidates.append((quality, build))
 
@@ -688,15 +709,20 @@ def parse_args():
                          help="prefer feasible builds that use fewer distinct\n"
                               "vocations (fewer vocation changes)")
     g_goals.add_argument('--bias', type=str, default='', metavar='STATS',
-                         help="comma-separated stats to maximize, highest priority\n"
-                              "first, e.g. 'attack,defense' maxes attack then maxes\n"
-                              "defense without giving up attack. Empty (default) just\n"
-                              "maximizes the (hp/st-discounted) total stat sum.\n"
+                         help="comma-separated stats to softly favor by boosting\n"
+                              "their weight in the objective; the first listed gets\n"
+                              "the largest boost, each later one less. A soft\n"
+                              "preference traded off against the other stats.\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
-    g_goals.add_argument('--dump', type=str, default='', metavar='STATS',
-                         help="comma-separated stats to minimize, highest priority\n"
-                              "first (constraints still hold; ranked below --bias,\n"
-                              "above the total stat sum)\n"
+    g_goals.add_argument('--maximize', type=str, default='', metavar='STATS',
+                         help="comma-separated stats to hard-maximize, highest\n"
+                              "priority first, e.g. 'attack,defense' maxes attack\n"
+                              "then maxes defense without giving up attack.\n"
+                              "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
+    g_goals.add_argument('--minimize', type=str, default='', metavar='STATS',
+                         help="comma-separated stats to hard-minimize, highest\n"
+                              "priority first (constraints still hold; ranked below\n"
+                              "--maximize, above the total stat sum)\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--equal-weights', action='store_true',
                          help="value hp/st equally with the other stats in the\n"
@@ -994,22 +1020,19 @@ def main():
     rounding = {s: m for s, m in stat_mode.items() if m in DIVISOR_MODES}
     nice = [s for s, m in stat_mode.items() if m == 'nice']
 
-    # --bias: ordered list of stats to maximize (highest priority first).
+    # --maximize / --minimize: hard lexicographic goals; --bias: soft weight boost.
+    maximize = parse_stat_list(a.maximize)
+    minimize = parse_stat_list(a.minimize)
     bias = parse_stat_list(a.bias)
-    bad = [s for s in bias if s not in STATS]
-    if bad:
-        fail(f"unknown stat(s) in --bias: {','.join(bad)}; choices: {','.join(STATS)}")
-        return
-    # --dump: ordered list of stats to minimize (highest priority first).
-    dump = parse_stat_list(a.dump)
-    bad = [s for s in dump if s not in STATS]
-    if bad:
-        fail(f"unknown stat(s) in --dump: {','.join(bad)}; choices: {','.join(STATS)}")
-        return
-    # --bias and --dump cannot target the same stat (maximize vs minimize).
-    clash = set(bias) & set(dump)
+    for flag, names in (('--maximize', maximize), ('--minimize', minimize), ('--bias', bias)):
+        bad = [s for s in names if s not in STATS]
+        if bad:
+            fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)}")
+            return
+    # --maximize and --minimize cannot target the same stat.
+    clash = set(maximize) & set(minimize)
     if clash:
-        fail(f"--bias and --dump both target: {','.join(sorted(clash))} "
+        fail(f"--maximize and --minimize both target: {','.join(sorted(clash))} "
              "(cannot maximize and minimize the same stat)")
         return
 
@@ -1119,7 +1142,7 @@ def main():
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         builds = solve_ilp(cons, count=count, rounding=rounding, nice=nice, match=match,
                            minimize_vocations=a.minimize_vocations, base_st=base_st,
-                           allowed=allowed, bias=bias, dump=dump,
+                           allowed=allowed, maximize=maximize, minimize=minimize, bias=bias,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None)
         if not builds:
             if a.json:
@@ -1139,7 +1162,7 @@ def main():
             ilp_only = [('--perfect', a.perfect), ('--half-perfect', a.half_perfect),
                         ('--decimal', a.decimal), ('--nice', a.nice), ('--match', a.match),
                         ('--minimize-vocations', a.minimize_vocations),
-                        ('--bias', a.bias), ('--dump', a.dump)]
+                        ('--bias', a.bias), ('--maximize', a.maximize), ('--minimize', a.minimize)]
             for flag, val in ilp_only:
                 if val:
                     print(c(f"\nnote: {flag} is only supported by the ILP solver; ignoring it for search.", 'yellow'))
@@ -1165,7 +1188,8 @@ def main():
             "pawn": a.pawn,
             "excluded_vocations": PAWN_EXCLUDED if a.pawn else [],
             "bias": bias,
-            "dump": dump,
+            "maximize": maximize,
+            "minimize": minimize,
             "solver": method,
             "requested": count,
             "found": len(builds),
