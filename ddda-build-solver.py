@@ -442,12 +442,11 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
     rounding = dict(rounding or {})
     neat = set(neat)
     adv_pool = list(allowed) if allowed is not None else ALL
-    results = []
+    candidates = []   # (quality_key, build) across all starts; sorted at the end
     # The start vocation only shifts the constant base stats, so solve one ILP
-    # family per basic start.
+    # family per basic start, then pick the best builds across all of them — the
+    # start is chosen by the resulting stats/objective, not by a fixed order.
     for start in BASIC:
-        if len(results) >= count:
-            break
         base = dict(basic[start]['init'])
         if base_st is not None:
             base['st'] = base_st   # weight class overrides the data's default (M=540)
@@ -543,6 +542,7 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
         # Each entry is (stat, sense) where sense=+1 maximizes, -1 minimizes.
         lex_goals = [(s, +1) for s in bias] + [(s, -1) for s in dump]
         infeasible_start = False
+        lex_opts = []   # the pinned bias/dump optima, in priority order
         for stat, sense in lex_goals:
             prob.setObjective(-sense * exprs[stat])  # minimize -> max/min per sense
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
@@ -550,6 +550,7 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
                 infeasible_start = True
                 break
             opt = round(exprs[stat].value())
+            lex_opts.append((sense, opt))
             if sense > 0:
                 prob += exprs[stat] >= opt   # pin maximized optimum
             else:
@@ -559,8 +560,9 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
 
         prob.setObjective(base_objective)
 
+        # Enumerate up to `count` distinct builds for this start, best first.
         cut_id = 0
-        while len(results) < count:
+        for _ in range(count):
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
             if pulp.LpStatus[prob.status] != "Optimal":
                 break  # no more distinct builds for this start
@@ -568,7 +570,18 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
             c100 = {v: int(round(x100[v].value())) for v in adv_pool}
             c200 = {v: int(round(x200[v].value())) for v in adv_pool}
             s = stats_of(start, c10, c100, c200, base_st=base_st)
-            results.append((penalty(s, eval_cons), start, c10, c100, c200, s))
+            build = (penalty(s, eval_cons), start, c10, c100, c200, s)
+            # Quality key mirroring the lexicographic objective (smaller = better),
+            # so the winning start is chosen by stats/objective, not BASIC order:
+            #  1. distinct vocation count, only when --minimize-vocations is set;
+            #  2. bias maximize -> -value / dump minimize -> +value, priority order;
+            #  3. the weighted stat total (maximize -> negate).
+            n_vocs = len({v for cc in (c10, c100, c200) for v, n in cc.items() if n > 0})
+            voc_key = (n_vocs,) if minimize_vocations else ()
+            lex_key = tuple(-opt if sense > 0 else opt for sense, opt in lex_opts)
+            wstat = sum(BALANCE_WEIGHTS[k] * s[k] for k in STATS)
+            quality = (voc_key, lex_key, -wstat)
+            candidates.append((quality, build))
 
             # No-good cut: force the next solution to differ from this one in at
             # least one variable. For each var x_i with value v_i, a binary g_i
@@ -586,7 +599,11 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
             prob += pulp.lpSum(inds) >= 1
             cut_id += 1
 
-    return results[:count]
+    # Choose builds across all starts by quality (stats/objective), not by the
+    # order starts were tried. Ties keep their first-seen (BASIC) order via the
+    # stable sort, so fighter only wins genuine ties.
+    candidates.sort(key=lambda ck: ck[0])
+    return [build for _, build in candidates[:count]]
 
 class _SpacedHelpFormatter(argparse.RawTextHelpFormatter):
     """Help formatter that preserves newlines in description, epilog, and option
