@@ -146,10 +146,13 @@ with a warning.
 
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
-| `--perfect STATS`       | Comma-separated stats forced to a **multiple of 100**. The max bound is dropped; min kept as a floor. |
-| `--neat STATS`          | Comma-separated stats forced to a **"neat" number**: `666`, ending in `42` or `69`, all-same-digit (e.g. `444`), or a multiple of 100. Max dropped, min kept. |
+| `--perfect STATS`       | Comma-separated stats forced to a **multiple of 100**. The max bound is dropped; min kept as a floor. Pass `all` for every stat. |
+| `--neat STATS`          | Comma-separated stats forced to a **"neat" number**: `666`, ending in `42` or `69`, all-same-digit (e.g. `444`), or a multiple of 100. Max dropped, min kept. Pass `all` for every stat. |
 | `--match PAIRS`         | Comma-separated stat pairs forced to **equal** final values, e.g. `attack=mattack,defense=mdefense`. Each stat's own min/max still applies. |
 | `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). |
+
+For `--perfect` and `--neat`, the special value `all` expands to every stat — so
+`--neat all` is shorthand for `--neat hp,st,attack,defense,mattack,mdefense`.
 
 ### Character
 
@@ -219,6 +222,9 @@ $ ddda-build-solver.py --pawn
 
 # Heavy character, "neat" HP, machine-readable output
 $ ddda-build-solver.py --weight LL --neat hp --json
+
+# Force every final stat to a "neat" number
+$ ddda-build-solver.py --neat all
 ```
 
 ## Notes & caveats
