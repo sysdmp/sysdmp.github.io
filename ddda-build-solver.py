@@ -876,7 +876,7 @@ def _fmt_levels(counts):
     items = [(v, counts[v]) for v in VOC_ORDER if counts.get(v, 0) > 0]
     return '  '.join(f"{_color_voc(v)} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
 
-def print_build(idx, build, cons, rounding=None, nice=(), weight=None):
+def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tiers=()):
     """Print one build as a colored header plus leveling-plan and final-stats tables.
 
     Args:
@@ -885,15 +885,25 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None):
         cons: constraints dict, used to color/annotate each final stat.
         rounding: {stat: divisor-mode-name} map (see DIVISOR_MODES); these stats'
             max bound is ignored when judging requirements, and annotated (e.g.
-            "x100") in the requirement column.
+            "x100") in the details column.
         nice: iterable of stats in "nice" mode, whose max bound is likewise
-            ignored (the value is annotated as "nice" in the requirement column).
+            ignored (the value is annotated as "nice" in the details column).
         weight: optional weight-class name; when given, its class / range /
             base stamina / regen are appended as rows to the final-stats table.
+        bias_tiers: list of (sign, [stats]) bias tiers; each stat's tier is noted
+            in the details column (e.g. "bias +1", "bias -2").
     """
     p,start,c10,c100,c200,s = build
     rounding = dict(rounding or {})
     nice = set(nice)
+    # map stat -> signed bias label (+n favor / -n reduce), per its tier
+    bias_note = {}
+    pos_n = neg_n = 0
+    for sign, tier in bias_tiers:
+        if sign > 0: pos_n += 1
+        else: neg_n += 1
+        for st in tier:
+            bias_note[st] = f"bias {'+' if sign > 0 else '-'}{pos_n if sign > 0 else neg_n}"
 
     head = c(f"build {idx}", 'bold', 'white')
     status = c(f"{GLYPH['ok']} all requirements met", 'bold', 'green') if p == 0 \
@@ -935,6 +945,7 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None):
         if hi_eff is not None: bound.append(f"{GLYPH['le']}{hi_eff}")
         if k in rounding: bound.append(f"{GLYPH['mul']}{DIVISOR_MODES[rounding[k]]}")
         if k in nice: bound.append("nice")
+        if k in bias_note: bound.append(bias_note[k])
         rows.append([c(k,'cyan'), val, c(' '.join(bound) or GLYPH['dash'], 'dim')])
     # summary totals
     combat = s['attack'] + s['mattack'] + s['defense'] + s['mdefense']
@@ -952,14 +963,14 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None):
     if weight is not None:
         regen, regen_pct = WEIGHT_STAREGEN[weight]
         rows.append([sep, sep, sep])
-        rows.append([c('weight', 'cyan'), c(weight, 'magenta', 'bold'),
+        rows.append([c('weight class', 'cyan'), c(weight, 'magenta', 'bold'),
                      c(WEIGHT_RANGES[weight], 'dim')])
         rows.append([c('base st', 'cyan'), c(str(WEIGHTS[weight]), 'bold'),
                      c('base stamina', 'dim')])
         rows.append([c('st regen', 'cyan'), c(f"{regen}/s", 'bold'),
                      c(f"{regen_pct} of M", 'dim')])
     print(render_table(
-        ["stat", "value", "requirement"],
+        ["stat", "value", "details"],
         rows, aligns=['left', 'right', 'left'], title="final stats",
     ))
 
@@ -1306,7 +1317,7 @@ def main():
 
     print(c(f"\nfound {len(builds)} build(s)", 'bold') + (c(f" (requested {count})", 'dim') if count > 1 else "") + ":")
     for i, b in enumerate(builds, 1):
-        print_build(i, b, cons, rounding, nice, weight=a.weight)
+        print_build(i, b, cons, rounding, nice, weight=a.weight, bias_tiers=bias_tiers)
     if len(builds) < count:
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
 

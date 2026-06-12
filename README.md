@@ -111,25 +111,25 @@ found 1 build(s):
 | 100->200 |    100 | strider x15  mage x22  sorcerer x52  assassin x11 |
 +----------+--------+---------------------------------------------------+
  vocation switches: 6 (7 leveling blocks across the 3 ranges)
-                    final stats
-+----------+-------+---------------------------------+
-| stat     | value | requirement                     |
-+----------+-------+---------------------------------+
-| hp       |  4785 | >=3200                          |
-| st       |  3200 | >=3200                          |
-| attack   |   500 | >=500                           |
-| defense  |   484 | >=300                           |
-| mattack  |   500 | >=500                           |
-| mdefense |   300 | >=300                           |
-| ---      |   --- | ---                             |
-| combat   |  1784 | attack+mattack+defense+mdefense |
-| vitals   |  7985 | hp + st                         |
-| total    |  9769 | all stats                       |
-| ---      |   --- | ---                             |
-| weight   |     M | 70-89kg                         |
-| base st  |   540 | base stamina                    |
-| st regen |  42/s | 100% of M                       |
-+----------+-------+---------------------------------+
+                      final stats
++--------------+-------+---------------------------------+
+| stat         | value | details                         |
++--------------+-------+---------------------------------+
+| hp           |  4785 | >=3200                          |
+| st           |  3200 | >=3200                          |
+| attack       |   500 | >=500                           |
+| defense      |   484 | >=300                           |
+| mattack      |   500 | >=500                           |
+| mdefense     |   300 | >=300                           |
+| ---          |   --- | ---                             |
+| combat       |  1784 | attack+mattack+defense+mdefense |
+| vitals       |  7985 | hp + st                         |
+| total        |  9769 | all stats                       |
+| ---          |   --- | ---                             |
+| weight class |     M | 70-89kg                         |
+| base st      |   540 | base stamina                    |
+| st regen     |  42/s | 100% of M                       |
++--------------+-------+---------------------------------+
 ```
 
 Pass `--json` for machine-readable output instead (see [Output control](#output-control)).
