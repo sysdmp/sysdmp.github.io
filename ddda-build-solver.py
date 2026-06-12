@@ -687,7 +687,8 @@ def parse_args():
                               "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--match', type=str, default='', metavar='PAIRS',
                          help="comma-separated stat pairs forced to equal values,\n"
-                              "e.g. 'attack=mattack,defense=mdefense'\n"
+                              "e.g. 'attack=mattack,defense=mdefense'. 'all' expands\n"
+                              "to attack=mattack,defense=mdefense,hp=st.\n"
                               "(each stat's own min/max still applies)")
     g_goals.add_argument('--minimize-vocations', action='store_true',
                          help="prefer feasible builds that use fewer distinct\n"
@@ -983,9 +984,13 @@ def main():
              "(cannot maximize and minimize the same stat)")
         return
 
-    # --match: parse "a=b,c=d" into a list of (stat_a, stat_b) pairs.
+    # --match: parse "a=b,c=d" into a list of (stat_a, stat_b) pairs. The keyword
+    # 'all' expands to the three canonical pairings.
     match = []
-    for spec in (p.strip() for p in a.match.split(',') if p.strip()):
+    match_spec = a.match
+    if match_spec.strip() == 'all':
+        match_spec = 'attack=mattack,defense=mdefense,hp=st'
+    for spec in (p.strip() for p in match_spec.split(',') if p.strip()):
         if spec.count('=') != 1:
             fail(f"bad --match pair '{spec}'; expected form 'stat=stat'")
             return

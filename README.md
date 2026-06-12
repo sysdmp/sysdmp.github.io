@@ -170,7 +170,7 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
-| `--match PAIRS`         | Comma-separated stat pairs forced to **equal** final values, e.g. `attack=mattack,defense=mdefense`. Each stat's own min/max still applies. |
+| `--match PAIRS`         | Comma-separated stat pairs forced to **equal** final values, e.g. `attack=mattack,defense=mdefense`. The keyword `all` expands to `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
 | `--bias STATS`          | Comma-separated stats to **maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Empty (default) maximizes the total stat sum, with hp/st discounted (see below). |
 | `--dump STATS`          | Comma-separated stats to **minimize**, highest priority first. Ranked below `--bias`, above the total-stat maximization. |
 | `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the bias/dump/total objective. |
