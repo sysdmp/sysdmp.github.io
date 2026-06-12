@@ -87,10 +87,11 @@ Tighten or relax any stat with `--<stat>-min` / `--<stat>-max`, pin one exactly 
 
 By default the tool prints colored ASCII/Unicode tables: your weight class, the
 target constraints (with a single `round` column showing each stat's rounding/neat
-mode), and for each build a **leveling plan** (which vocation to level in each range)
-and the resulting **final stats** (green if a stat meets its requirement, red if not).
-The final-stats table ends with three summary rows: **combat** (attack+mattack+
-defense+mdefense), **vitals** (hp+st), and **total** (all six).
+mode), and for each build a **leveling plan** (which vocation to level in each range,
+followed by the total **vocation switches** the plan requires) and the resulting
+**final stats** (green if a stat meets its requirement, red if not). The final-stats
+table ends with three summary rows: **combat** (attack+mattack+defense+mdefense),
+**vitals** (hp+st), and **total** (all six).
 
 ```text
 solver: ILP (exact)
@@ -109,6 +110,7 @@ found 1 build(s):
 | 10->100  |     90 | fighter x75  ranger x14  sorcerer x1 |
 | 100->200 |    100 | strider x44  mage x5  sorcerer x51   |
 +----------+--------+--------------------------------------+
+ vocation switches: 6 (7 leveling blocks across the 3 ranges)
                     final stats
 +----------+-------+---------------------------------+
 | stat     | value | requirement                     |
@@ -235,8 +237,8 @@ The JSON document includes the weight class, the full constraints (with `exact`,
 `perfect`, `half_perfect`, `decimal`, and `neat` flags per stat), the `match` pairs,
 the `pawn` flag and any `excluded_vocations`, the `bias` and `dump` lists, the solver
 used, and a `builds` array. Each build reports its `start` vocation, per-range
-`levels`, `final_stats`, a `totals` object (`combat` / `vitals` / `all`), and a
-`feasible` flag. Stat keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of
+`levels`, `vocation_switches`, `final_stats`, a `totals` object (`combat` / `vitals` /
+`all`), and a `feasible` flag. Stat keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of
 display formatting.
 
 ## Examples
