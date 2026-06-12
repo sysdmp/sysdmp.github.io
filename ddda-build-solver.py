@@ -198,6 +198,18 @@ STAT_DEFAULTS = {
     'mattack':  (500,  None),
     'mdefense': (300,  None),
 }
+# Per-stat weight used by the balanced (default) objective's total-stat sum.
+# hp/st have much larger raw magnitudes than the combat stats and grow more
+# cheaply, so weighting them below 1 keeps the balanced build from dumping all
+# its level-ups into hp/st at the expense of attack/defense/mattack/mdefense.
+BALANCE_WEIGHTS = {
+    'hp':       0.1,
+    'st':       0.1,
+    'attack':   1.0,
+    'defense':  1.0,
+    'mattack':  1.0,
+    'mdefense': 1.0,
+}
 
 # Character weight class sets initial stamina. The data above assumes M (540).
 WEIGHTS = {'SS': 500, 'S': 520, 'M': 540, 'L': 560, 'LL': 580}
@@ -503,8 +515,8 @@ def solve_ilp(cons, count=1, perfect=(), half_perfect=(), neat=(), match=(),
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
-        #  2. maximize total final stats, so among otherwise-equal builds the one
-        #     that leaves no stat lower is preferred (e.g. higher HP wins).
+        #  2. maximize the weighted total of final stats (BALANCE_WEIGHTS), so the
+        #     balanced build favors raising combat stats over piling into hp/st.
         #  3. cosmetic tie-breakers: in 1->10 prefer mage; in 10->100 discourage
         #     mage and encourage sorcerer.
         # The --bias / --dump stats sit ABOVE all of this and are handled by a
@@ -512,9 +524,9 @@ def solve_ilp(cons, count=1, perfect=(), half_perfect=(), neat=(), match=(),
         # pinned). Fighter start is preferred separately, by trying starts in
         # BASIC order (fighter first) and stopping once `count` builds are found.
         W_VOC  = 10**9   # per used vocation; dominant
-        W_STAT = 10**3   # per stat point; dwarfs the cosmetic prefs (magnitude < 200)
+        W_STAT = 10**3   # per (weighted) stat point; dwarfs the cosmetic prefs (mag < 200)
         prefs = -x10['mage'] + x100['mage'] - x100['sorcerer']
-        total_stats = pulp.lpSum(exprs[k] for k in STATS)
+        total_stats = pulp.lpSum(BALANCE_WEIGHTS[k] * exprs[k] for k in STATS)
         base_objective = -W_STAT * total_stats + prefs
 
         if minimize_vocations:
@@ -655,13 +667,13 @@ def parse_args():
                          help="comma-separated stats to maximize, highest priority\n"
                               "first, e.g. 'attack,defense' maxes attack then maxes\n"
                               "defense without giving up attack. Empty (default) just\n"
-                              "maximizes the total stat sum.\n"
-                              "stats: " + ','.join(STATS))
+                              "maximizes the (hp/st-discounted) total stat sum.\n"
+                              "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--dump', type=str, default='', metavar='STATS',
                          help="comma-separated stats to minimize, highest priority\n"
                               "first (constraints still hold; ranked below --bias,\n"
                               "above the total stat sum)\n"
-                              "stats: " + ','.join(STATS))
+                              "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
 
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
     g_char.add_argument('--weight', choices=list(WEIGHTS), default='M', metavar='CLASS',
@@ -850,11 +862,25 @@ def main():
             print("error: " + msg)
 
     def parse_stat_list(raw):
-        """Split a comma-separated stat list; expand the keyword 'all' to every stat."""
-        items = [s.strip() for s in raw.split(',') if s.strip()]
-        if 'all' in items:
-            return list(STATS)
-        return items
+        """Split a comma-separated stat list, expanding group keywords.
+
+        'all' -> every stat; 'combat' -> the four combat stats (the ones the
+        balanced objective favors over hp/st: attack, defense, mattack, mdefense).
+        """
+        items = []
+        for s in (x.strip() for x in raw.split(',') if x.strip()):
+            if s == 'all':
+                items.extend(STATS)
+            elif s == 'combat':
+                items.extend(['attack', 'defense', 'mattack', 'mdefense'])
+            else:
+                items.append(s)
+        # de-dupe while preserving order (groups may overlap explicit entries)
+        seen, out = set(), []
+        for s in items:
+            if s not in seen:
+                seen.add(s); out.append(s)
+        return out
 
     perfect = parse_stat_list(a.perfect)
     half_perfect = parse_stat_list(a.half_perfect)
@@ -887,17 +913,11 @@ def main():
     if bad:
         fail(f"unknown stat(s) in --bias: {','.join(bad)}; choices: {','.join(STATS)}")
         return
-    if len(bias) != len(set(bias)):
-        fail(f"--bias lists a stat more than once: {a.bias}")
-        return
     # --dump: ordered list of stats to minimize (highest priority first).
     dump = parse_stat_list(a.dump)
     bad = [s for s in dump if s not in STATS]
     if bad:
         fail(f"unknown stat(s) in --dump: {','.join(bad)}; choices: {','.join(STATS)}")
-        return
-    if len(dump) != len(set(dump)):
-        fail(f"--dump lists a stat more than once: {a.dump}")
         return
     # --bias and --dump cannot target the same stat (maximize vs minimize).
     clash = set(bias) & set(dump)
