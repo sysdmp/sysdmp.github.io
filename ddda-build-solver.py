@@ -52,16 +52,16 @@ def _set_color(enabled):
 # Box-drawing glyphs. The unicode set draws clean tables in any UTF-8 terminal;
 # the ascii set is a 7-bit fallback for legacy terminals / ascii-only pipelines.
 # Keys: tl tr bl br (corners), h v (lines), tm bm lm rm cross (junctions),
-# plus heavy/light separators used outside tables.
+# plus heavy separator and inline symbols used outside tables.
 _CHARSETS = {
     'unicode': dict(tl='┌', tr='┐', bl='└', br='┘', h='─', v='│',
                     tm='┬', bm='┴', lm='├', rm='┤', cross='┼',
                     heavy='━', mul='×', ok='✓', bad='✗', ge='≥', le='≤',
-                    arrow='→', bullet='•', dash='—'),
+                    arrow='→', dash='—'),
     'ascii':   dict(tl='+', tr='+', bl='+', br='+', h='-', v='|',
                     tm='+', bm='+', lm='+', rm='+', cross='+',
                     heavy='=', mul='x', ok='[OK]', bad='[X]', ge='>=', le='<=',
-                    arrow='->', bullet='*', dash='-'),
+                    arrow='->', dash='-'),
 }
 # Default to unicode unless the locale clearly isn't UTF-8.
 _use_ascii_default = 'utf' not in (os.environ.get('LANG', '') + os.environ.get('LC_ALL', '')).lower()
@@ -192,12 +192,13 @@ STATS = ['hp','st','attack','defense','mattack','mdefense']
 STAT_ALIASES = {'defence': 'defense', 'mdefence': 'mdefense'}
 BASIC = list(basic.keys())
 ALL = list(basic.keys()) + list(adv.keys())
+VOCS = {**basic, **adv}   # all vocations -> their growth data, for growth()
 # Largest per-level gain for each stat across all vocations/tiers. Used to
 # normalize --bias boosts: stats grow at very different rates (hp ~40/lvl vs
 # mdefense ~5/lvl), so an un-normalized weight boost would favor fast-growing
 # stats. Dividing a boost by MAX_GAIN makes a unit of boost mean "the same
 # amount of leveling invested," so --bias priority follows the listed order.
-MAX_GAIN = {k: max(d[t][k] for d in (*basic.values(), *adv.values())
+MAX_GAIN = {k: max(d[t][k] for d in VOCS.values()
                             for t in ('to10', 'to100', 'to200') if t in d)
             for k in STATS}
 # Advanced vocations disabled by --pawn (vocations a pawn cannot take).
@@ -233,6 +234,22 @@ BALANCE_WEIGHTS = {
 BIAS_BOOST_BASE = 10.0
 BIAS_BOOST_FALLOFF = 0.5
 
+def bias_ranks(bias_tiers):
+    """Map each biased stat to (sign, group_index) from a list of (sign, [stats]).
+
+    Positive and negative tiers are indexed independently (group_index is the
+    0-based position within that sign's tiers), so the bias magnitude and the
+    displayed tier number are consistent everywhere they're computed.
+    """
+    ranks, pos_i, neg_i = {}, 0, 0
+    for sign, tier in bias_tiers:
+        idx = pos_i if sign > 0 else neg_i
+        for stat in tier:
+            ranks[stat] = (sign, idx)
+        if sign > 0: pos_i += 1
+        else: neg_i += 1
+    return ranks
+
 # Character weight class sets base stamina. The data above assumes M (540).
 WEIGHTS = {'SS': 500, 'S': 520, 'M': 540, 'L': 560, 'LL': 580}
 # Body-weight range that determines each class (kg).
@@ -260,8 +277,7 @@ def growth(voc, tier):
     ``tier`` is one of 'to10', 'to100', 'to200'. Works for both basic and
     advanced vocations (advanced ones only define 'to100'/'to200').
     """
-    if voc in basic: return basic[voc][tier]
-    return adv[voc][tier]
+    return VOCS[voc][tier]
 
 def stats_of(start, c10, c100, c200, base_st=None):
     """Compute final stats for a build.
@@ -402,14 +418,14 @@ def nice_values(lo, hi):
     """List the nice numbers in the inclusive range [lo, hi] (sorted ascending)."""
     return [n for n in range(max(0, lo), hi + 1) if is_nice(n)]
 
-def _stat_upper_bound(k, base, adv_pool=ALL):
+def _stat_upper_bound(k, base, adv_pool=ALL, basic_pool=BASIC):
     """Tight upper bound on stat ``k`` for a build starting from ``base``.
 
     Equals the base value plus the maximum possible per-level gain in each
-    range; used only to bound the nice-value enumeration in the ILP. ``adv_pool``
-    restricts the vocations available in the 10->100 and 100->200 ranges.
+    range; used only to bound the nice-value enumeration in the ILP. The pools
+    restrict the vocations available (1->10 uses basics; later ranges adv_pool).
     """
-    m10  = max(growth(v, 'to10')[k]  for v in BASIC)
+    m10  = max(growth(v, 'to10')[k]  for v in basic_pool)
     m100 = max(growth(v, 'to100')[k] for v in adv_pool)
     m200 = max(growth(v, 'to200')[k] for v in adv_pool)
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
@@ -512,7 +528,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                 # nice mode: value must be one of the enumerated nice numbers in
                 # [floor, reachable-max]. Pick exactly one via binary selectors.
                 floor = lo if lo is not None else 0
-                ub = _stat_upper_bound(k, base, adv_pool)
+                ub = _stat_upper_bound(k, base, adv_pool, basic_pool)
                 choices = nice_values(floor, ub)
                 if not choices:
                     # no nice value is reachable for this stat -> infeasible start
@@ -543,13 +559,8 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # groups are indexed independently. The equal-share floor below guarantees
         # positively-biased stats grow at all (weighted sum is winner-take-all).
         eff_weights = dict(weights)
-        pos_i = neg_i = 0
-        for sign, tier in bias_tiers:
-            i = pos_i if sign > 0 else neg_i
-            for stat in tier:
-                eff_weights[stat] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** i) / MAX_GAIN[stat]
-            if sign > 0: pos_i += 1
-            else: neg_i += 1
+        for stat, (sign, idx) in bias_ranks(bias_tiers).items():
+            eff_weights[stat] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[stat]
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
@@ -606,12 +617,8 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # priority proportion (co-tier stats get the same share). Then bake the
         # achieved gains in as floors and let the weighted total maximize within.
         # Negative tiers only adjust the objective weight; they get no floor.
-        bias_shares = []
-        pos_i = 0
-        for sign, tier in bias_tiers:
-            if sign > 0:
-                bias_shares.extend((stat, BIAS_BOOST_FALLOFF ** pos_i) for stat in tier)
-                pos_i += 1
+        bias_shares = [(stat, BIAS_BOOST_FALLOFF ** idx)
+                       for stat, (sign, idx) in bias_ranks(bias_tiers).items() if sign > 0]
         if bias_shares:
             t = pulp.LpVariable(f"bias_t_{start}", lowBound=0)
             for stat, share in bias_shares:
@@ -898,14 +905,9 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
     p,start,c10,c100,c200,s = build
     rounding = dict(rounding or {})
     nice = set(nice)
-    # map stat -> signed bias label (+n favor / -n reduce), per its tier
-    bias_note = {}
-    pos_n = neg_n = 0
-    for sign, tier in bias_tiers:
-        if sign > 0: pos_n += 1
-        else: neg_n += 1
-        for st in tier:
-            bias_note[st] = f"bias {'+' if sign > 0 else '-'}{pos_n if sign > 0 else neg_n}"
+    # map stat -> signed bias label (+n favor / -n reduce), per its 1-based tier
+    bias_note = {st: f"bias {'+' if sign > 0 else '-'}{idx + 1}"
+                 for st, (sign, idx) in bias_ranks(bias_tiers).items()}
 
     head = c(f"build {idx}", 'bold', 'white')
     status = c(f"{GLYPH['ok']} all requirements met", 'bold', 'green') if p == 0 \
@@ -985,6 +987,79 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         rows, aligns=['left', 'right', 'left'], title="final stats",
     ))
 
+def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
+    """Print the banner, the 'avoiding' line, and the target-constraints table.
+
+    Args mirror the parsed inputs from main(): cons {stat:(min,max)}, the exact
+    stat list, stat_mode {stat:rounding/nice-mode}, match pairs, bias_tiers, and
+    the set of avoided vocations. Matched stats show their group-intersected
+    bounds; the bias column shows each stat's signed tier.
+    """
+    print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
+    if avoid:
+        print(c("avoiding: ", 'bold') + c(', '.join(v for v in ALL if v in avoid), 'yellow'))
+
+    # map each stat to the partner stats it must match (both directions)
+    match_partners = {k: [] for k in STATS}
+    for a_s, b_s in match:
+        match_partners[a_s].append(b_s)
+        match_partners[b_s].append(a_s)
+
+    # group matched stats into connected components (handles chains like a=b,b=c).
+    # Matched stats share one value, so their effective bounds are the tightest
+    # floor (max of mins) and tightest ceiling (min of maxes) across the group.
+    comp_of = {}
+    for k in STATS:
+        if k in comp_of:
+            continue
+        stack, comp = [k], []
+        while stack:
+            cur = stack.pop()
+            if cur in comp_of:
+                continue
+            comp_of[cur] = None
+            comp.append(cur)
+            stack.extend(match_partners[cur])
+        mins = [cons[m][0] for m in comp if cons[m][0] is not None]
+        maxs = [cons[m][1] for m in comp if cons[m][1] is not None]
+        eff = (max(mins) if mins else None, min(maxs) if maxs else None)
+        for m in comp:
+            comp_of[m] = eff
+
+    ranks = bias_ranks(bias_tiers)   # stat -> (sign, 0-based tier index)
+    crows = []
+    for k in STATS:
+        lo, hi = comp_of[k]   # effective (group-intersected) bounds
+        # single label for the stat's rounding/nice mode (mutually exclusive)
+        mode = stat_mode.get(k)
+        if mode in DIVISOR_MODES:
+            round_label = c(f"{GLYPH['mul']}{DIVISOR_MODES[mode]}", 'green')
+        elif mode == 'nice':
+            round_label = c("nice", 'green')
+        else:
+            round_label = c(GLYPH['dash'], 'dim')
+        # signed bias tier: +n favors / -n reduces (n = 1-based tier within sign)
+        if k in ranks:
+            sign, idx = ranks[k]
+            bias_label = c(f"{'+' if sign > 0 else '-'}{idx + 1}", 'green' if sign > 0 else 'red')
+        else:
+            bias_label = c(GLYPH['dash'], 'dim')
+        partners = match_partners[k]
+        crows.append([
+            c(k,'cyan'),
+            c(str(lo) if lo is not None else GLYPH['dash'], 'dim' if lo is None else None),
+            c(str(hi) if hi is not None else GLYPH['dash'], 'dim' if hi is None else None),
+            c('yes','green') if k in exact else c(GLYPH['dash'],'dim'),
+            round_label,
+            bias_label,
+            c(', '.join(partners),'green') if partners else c(GLYPH['dash'],'dim'),
+        ])
+    print(render_table(
+        ["stat", "min", "max", "exact", "round", "bias", "match"],
+        crows, aligns=['left','right','right','center','center','center','left'],
+        title="target constraints",
+    ))
+
 def build_to_dict(build):
     """Convert a build tuple into a JSON-serializable dict for ``--json`` output."""
     p,start,c10,c100,c200,s = build
@@ -1045,6 +1120,14 @@ def main():
         else:
             print("error: " + msg)
 
+    def bad_stats(flag, names, allow_groups=False):
+        """If ``names`` has unknown stats, report via fail() and return True."""
+        bad = [s for s in names if s not in STATS]
+        if bad:
+            extra = ',all' if allow_groups else ''
+            fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)}{extra}")
+        return bool(bad)
+
     def parse_stat_list(raw):
         """Split a comma-separated stat list, expanding group keywords.
 
@@ -1081,9 +1164,7 @@ def main():
     stat_mode = {}   # {stat: mode-name}
     for flag, raw, mode in mode_flags:
         names = parse_stat_list(raw)
-        bad = [s for s in names if s not in STATS]
-        if bad:
-            fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)},all")
+        if bad_stats(flag, names, allow_groups=True):
             return
         for s in names:
             if s in exact:
@@ -1099,11 +1180,8 @@ def main():
     # --maximize / --minimize: hard lexicographic goals; --bias: soft weight boost.
     maximize = parse_stat_list(a.maximize)
     minimize = parse_stat_list(a.minimize)
-    for flag, names in (('--maximize', maximize), ('--minimize', minimize)):
-        bad = [s for s in names if s not in STATS]
-        if bad:
-            fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)}")
-            return
+    if bad_stats('--maximize', maximize) or bad_stats('--minimize', minimize):
+        return
     # --maximize and --minimize cannot target the same stat.
     clash = set(maximize) & set(minimize)
     if clash:
@@ -1124,9 +1202,7 @@ def main():
         negative = seg.startswith('-')
         body = seg[1:] if negative else seg
         tier = parse_stat_list(body.replace('=', ','))   # '=' members share the tier
-        bad = [s for s in tier if s not in STATS]
-        if bad:
-            fail(f"unknown stat(s) in --bias: {','.join(bad)}; choices: {','.join(STATS)}")
+        if bad_stats('--bias', tier):
             return
         tier = [s for s in tier if s not in seen_bias]   # drop already-placed stats
         if tier:
@@ -1177,76 +1253,7 @@ def main():
     start_pool = [v for v in BASIC if v not in avoid]
 
     if not a.json:
-        print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
-        if avoid:
-            print(c("avoiding: ", 'bold') +
-                  c(', '.join(v for v in ALL if v in avoid), 'yellow'))
-        # map each stat to the partner stats it must match (both directions)
-        match_partners = {k: [] for k in STATS}
-        for a_s, b_s in match:
-            match_partners[a_s].append(b_s)
-            match_partners[b_s].append(a_s)
-
-        # group matched stats into connected components (handles chains like
-        # a=b,b=c). Matched stats share one value, so their effective bounds are
-        # the tightest floor (max of mins) and tightest ceiling (min of maxes)
-        # across the whole group.
-        comp_of = {}
-        for k in STATS:
-            if k in comp_of:
-                continue
-            stack, comp = [k], []
-            while stack:
-                cur = stack.pop()
-                if cur in comp_of:
-                    continue
-                comp_of[cur] = None
-                comp.append(cur)
-                stack.extend(match_partners[cur])
-            mins = [cons[m][0] for m in comp if cons[m][0] is not None]
-            maxs = [cons[m][1] for m in comp if cons[m][1] is not None]
-            eff = (max(mins) if mins else None, min(maxs) if maxs else None)
-            for m in comp:
-                comp_of[m] = eff
-
-        crows = []
-        for k in STATS:
-            lo, hi = comp_of[k]   # effective (group-intersected) bounds
-            is_exact = k in exact
-            partners = match_partners[k]
-            # single label for the stat's rounding/nice mode (mutually exclusive)
-            mode = stat_mode.get(k)
-            if mode in DIVISOR_MODES:
-                round_label = c(f"{GLYPH['mul']}{DIVISOR_MODES[mode]}", 'green')
-            elif mode == 'nice':
-                round_label = c("nice", 'green')
-            else:
-                round_label = c(GLYPH['dash'], 'dim')
-            # signed bias tier: +n favors (n = 1-based positive tier), -n reduces.
-            # Co-tier stats (grouped via '=') show the same number.
-            bias_label = c(GLYPH['dash'], 'dim')
-            pos_n = neg_n = 0
-            for sign, t in bias_tiers:
-                if sign > 0: pos_n += 1
-                else: neg_n += 1
-                if k in t:
-                    n = pos_n if sign > 0 else neg_n
-                    bias_label = c(f"{'+' if sign > 0 else '-'}{n}", 'green' if sign > 0 else 'red')
-                    break
-            crows.append([
-                c(k,'cyan'),
-                c(str(lo) if lo is not None else GLYPH['dash'], 'dim' if lo is None else None),
-                c(str(hi) if hi is not None else GLYPH['dash'], 'dim' if hi is None else None),
-                c('yes','green') if is_exact else c(GLYPH['dash'],'dim'),
-                round_label,
-                bias_label,
-                c(', '.join(partners),'green') if partners else c(GLYPH['dash'],'dim'),
-            ])
-        print(render_table(
-            ["stat", "min", "max", "exact", "round", "bias", "match"],
-            crows, aligns=['left','right','right','center','center','center','left'],
-            title="target constraints",
-        ))
+        print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid)
 
     method = a.solver
     if method == 'auto':
