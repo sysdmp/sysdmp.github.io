@@ -820,6 +820,12 @@ def print_build(idx, build, cons, rounding=None, neat=()):
         title="leveling plan",
     )
     print(plan)
+    # Vocation switches: each range's distinct vocations form that many leveling
+    # stints (blocks); a switch is needed to enter every block except the first.
+    blocks = sum(len(_clean(cc)) for cc in (c10, c100, c200))
+    switches = max(0, blocks - 1)
+    print(f" vocation switches: {c(str(switches), 'bold')} "
+          + c(f"({blocks} leveling blocks across the 3 ranges)", 'dim'))
 
     # final stats table, each value colored by whether it satisfies its bound
     rows = []
@@ -863,6 +869,7 @@ def build_to_dict(build):
             "to100": _clean(c100),
             "to200": _clean(c200),
         },
+        "vocation_switches": max(0, sum(len(_clean(cc)) for cc in (c10, c100, c200)) - 1),
         "final_stats": s,
         "totals": {
             "combat": s['attack'] + s['mattack'] + s['defense'] + s['mdefense'],
