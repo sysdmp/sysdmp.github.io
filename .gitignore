@@ -23,6 +23,9 @@ dist/
 *.swp
 .DS_Store
 
+# --- Claude Code session state ---
+.claude/
+
 # Note: uv.lock and .python-version are intentionally NOT ignored — committing
 # them keeps the environment reproducible. Remove from this comment / add below
 # if you'd rather not track them.
