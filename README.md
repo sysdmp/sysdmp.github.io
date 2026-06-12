@@ -198,7 +198,8 @@ balanced build from piling level-ups into them at the expense of combat stats. P
 | Flag             | Meaning                                                                 |
 |------------------|-------------------------------------------------------------------------|
 | `--weight CLASS` | Weight class, which sets base stamina and stamina-regen rate. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
-| `--pawn`         | Build for a pawn: disallow the vocations a pawn cannot take (`mknight`, `marcher`, `assassin`). |
+| `--avoid VOCS`   | Comma-separated vocations to drop from consideration entirely (never leveled in any range, and excluded as a start vocation). |
+| `--pawn`         | Build for a pawn: alias for `--avoid mknight,marcher,assassin`. |
 
 | Class | Body weight     | Base stamina | Stamina regen |
 |-------|-----------------|--------------|---------------|
@@ -210,11 +211,13 @@ balanced build from piling level-ups into them at the expense of combat stats. P
 
 Stamina regen is informational (it does not affect the solve).
 
-Unlike the [ILP-only goals](#ilp-only-goals), `--pawn` is honored by **both**
-solvers. It removes Mystic Knight, Magick Archer, and Assassin from the vocations
-available in the `10→100` and `100→200` ranges — useful for planning a pawn, whose
-vocation pool is more limited than the Arisen's. If your targets genuinely require an
-excluded vocation, the result will be reported as infeasible.
+Unlike the [ILP-only goals](#ilp-only-goals), `--avoid` (and its `--pawn` alias) is
+honored by **both** solvers. It removes the named vocations from every range and from
+the start-vocation choices — useful for planning a pawn (whose pool is `mknight,
+marcher, assassin` smaller than the Arisen's), or for excluding any vocation you don't
+want to play. Avoiding all three basic vocations is rejected (one must remain as a
+start), and if your targets genuinely require an avoided vocation the result is
+reported as infeasible.
 
 ### Solver
 
@@ -240,7 +243,7 @@ first) and enumerates distinct builds via no-good cuts when `--count > 1`. The
 
 The JSON document includes the weight class, the full constraints (with `exact`,
 `perfect`, `half_perfect`, `decimal`, and `nice` flags per stat), the `match` pairs,
-the `pawn` flag and any `excluded_vocations`, the `bias` / `maximize` / `minimize` lists, the solver
+the `pawn` flag and any `avoided_vocations`, the `bias` / `maximize` / `minimize` lists, the solver
 used, and a `builds` array. Each build reports its `start` vocation, per-range
 `levels`, `vocation_switches`, `final_stats`, a `totals` object (`combat` / `vitals` /
 `all`), and a `feasible` flag. Stat keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of
@@ -260,6 +263,9 @@ $ ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocati
 
 # Plan a pawn build (no Mystic Knight / Magick Archer / Assassin)
 $ ddda-build-solver.py --pawn
+
+# Exclude specific vocations from consideration
+$ ddda-build-solver.py --avoid sorcerer,assassin
 
 # Heavy character, "nice" HP, machine-readable output
 $ ddda-build-solver.py --weight LL --nice hp --json

@@ -327,7 +327,7 @@ def neighbors_move(c, vocs):
     nc = dict(c); nc[a]-=1; nc[b]+=1
     return nc
 
-def search(cons, iters=1500000, base_st=None, allowed=None):
+def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None):
     """Stochastic hill-climb for a feasible build (fallback when PuLP is absent).
 
     Performs random restarts, each starting from a random vocation distribution
@@ -339,8 +339,9 @@ def search(cons, iters=1500000, base_st=None, allowed=None):
         iters: total moves to attempt, split evenly across restarts.
         base_st: optional starting-stamina override (weight class).
         allowed: optional iterable restricting which vocations may be used in
-            the 10->100 and 100->200 ranges (defaults to all). Basic vocations
-            are always permitted in the 1->10 range.
+            any range (defaults to all).
+        start_pool: optional iterable of allowed basic start vocations (defaults
+            to the basics still in `allowed`).
 
     Returns:
         The best build found as a tuple
@@ -348,23 +349,25 @@ def search(cons, iters=1500000, base_st=None, allowed=None):
         a positive value means this is only the closest build found.
     """
     adv_pool = list(allowed) if allowed is not None else ALL
+    basic_pool = [v for v in BASIC if v in adv_pool]
+    starts = list(start_pool) if start_pool is not None else basic_pool
     best = None
     for restart in range(60):
-        start = random.choice(BASIC)
-        c10 = rand_counts(BASIC, 9)
+        start = random.choice(starts)
+        c10 = rand_counts(basic_pool, 9)
         c100 = rand_counts(adv_pool, 90)
         c200 = rand_counts(adv_pool, 100)
         cur_p = penalty(stats_of(start,c10,c100,c200,base_st), cons)
         for it in range(iters//60):
             which = random.random()
             if which < 0.1:
-                nstart = random.choice(BASIC); nc10,nc100,nc200=c10,c100,c200
+                nstart = random.choice(starts); nc10,nc100,nc200=c10,c100,c200
                 np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
                 if np_<=cur_p:
                     start=nstart; cur_p=np_
                 continue
             elif which < 0.2:
-                m = neighbors_move(c10, BASIC);
+                m = neighbors_move(c10, basic_pool);
                 if m is None: continue
                 nc10,nc100,nc200=m,c100,c200; nstart=start
             elif which < 0.6:
@@ -411,7 +414,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
 
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None,
-              maximize=(), minimize=(), bias=(), weights=None):
+              maximize=(), minimize=(), bias=(), weights=None, start_pool=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -460,11 +463,14 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     nice = set(nice)
     weights = weights if weights is not None else BALANCE_WEIGHTS
     adv_pool = list(allowed) if allowed is not None else ALL
+    starts = list(start_pool) if start_pool is not None else BASIC
+    # basic vocations usable in the 1->10 range: those in the (avoid-filtered) pool
+    basic_pool = [v for v in BASIC if v in adv_pool]
     candidates = []   # (quality_key, build) across all starts; sorted at the end
     # The start vocation only shifts the constant base stats, so solve one ILP
-    # family per basic start, then pick the best builds across all of them — the
-    # start is chosen by the resulting stats/objective, not by a fixed order.
-    for start in BASIC:
+    # family per allowed basic start, then pick the best builds across all of them
+    # — the start is chosen by the resulting stats/objective, not by a fixed order.
+    for start in starts:
         base = dict(basic[start]['init'])
         if base_st is not None:
             base['st'] = base_st   # weight class overrides the data's default (M=540)
@@ -472,12 +478,12 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         prob = pulp.LpProblem("build", pulp.LpMinimize)
         # integer count of level-ups taken in each (vocation, tier), with upper
         # bounds = the block size (used as big-M for the no-good cuts below).
-        x10  = {v: pulp.LpVariable(f"x10_{v}",  lowBound=0, upBound=9,   cat="Integer") for v in BASIC}
+        x10  = {v: pulp.LpVariable(f"x10_{v}",  lowBound=0, upBound=9,   cat="Integer") for v in basic_pool}
         x100 = {v: pulp.LpVariable(f"x100_{v}", lowBound=0, upBound=90,  cat="Integer") for v in adv_pool}
         x200 = {v: pulp.LpVariable(f"x200_{v}", lowBound=0, upBound=100, cat="Integer") for v in adv_pool}
         # (var dict, vocations, block size) per range; reused for block-size
         # constraints, the minimize-vocations binding, and no-good cuts.
-        tiers = [(x10, BASIC, 9), (x100, adv_pool, 90), (x200, adv_pool, 100)]
+        tiers = [(x10, basic_pool, 9), (x100, adv_pool, 90), (x200, adv_pool, 100)]
 
         # block sizes: 1->10 = 9 levels, 10->100 = 90, 100->200 = 100
         for xs, _, total in tiers:
@@ -487,7 +493,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         exprs = {}
         for k in STATS:
             expr = base[k] \
-                + pulp.lpSum(growth(v,'to10')[k]  * x10[v]  for v in BASIC) \
+                + pulp.lpSum(growth(v,'to10')[k]  * x10[v]  for v in basic_pool) \
                 + pulp.lpSum(growth(v,'to100')[k] * x100[v] for v in adv_pool) \
                 + pulp.lpSum(growth(v,'to200')[k] * x200[v] for v in adv_pool)
             exprs[k] = expr
@@ -609,7 +615,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
             if pulp.LpStatus[prob.status] != "Optimal":
                 break  # no more distinct builds for this start
-            c10  = {v: int(round(x10[v].value()))  for v in BASIC}
+            c10  = {v: int(round(x10[v].value()))  for v in basic_pool}
             c100 = {v: int(round(x100[v].value())) for v in adv_pool}
             c200 = {v: int(round(x200[v].value())) for v in adv_pool}
             s = stats_of(start, c10, c100, c200, base_st=base_st)
@@ -754,9 +760,13 @@ def parse_args():
                         type=lambda s: s.upper(),  # accept ss / Ss / sS as SS, etc.
                         help="weight class -> base stamina and regen:\n" + weights_desc +
                              "\n(default: M; case-insensitive)")
+    g_char.add_argument('--avoid', type=str, default='', metavar='VOCS',
+                        help="comma-separated vocations to drop from consideration\n"
+                             "(not leveled in any range). vocations:\n"
+                             + ', '.join(ALL))
     g_char.add_argument('--pawn', action='store_true',
-                        help="build for a pawn: disallow the vocations a pawn\n"
-                             "cannot take (" + ', '.join(PAWN_EXCLUDED) + ")")
+                        help="build for a pawn: alias for --avoid "
+                             + ','.join(PAWN_EXCLUDED))
 
     g_solver = ap.add_argument_group(c('\U0001f9ee  solver', 'bold'))
     g_solver.add_argument('--solver', choices=['auto', 'ilp', 'search'], default='auto',
@@ -785,7 +795,7 @@ def parse_args():
 
     return ap.parse_args()
 
-def run_search(cons, a, count=1, base_st=None, allowed=None):
+def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None):
     """Returns a list of feasible builds (penalty 0), distinct by their vocation
     distribution, gathered across random restarts. If none are feasible, returns
     a single-element list with the closest build found (penalty > 0)."""
@@ -794,7 +804,7 @@ def run_search(cons, a, count=1, base_st=None, allowed=None):
     n_seeds = max(a.seeds, count * a.seeds)
     for i in range(n_seeds):
         random.seed(a.seed + i)
-        cand = search(cons, iters=a.iters, base_st=base_st, allowed=allowed)
+        cand = search(cons, iters=a.iters, base_st=base_st, allowed=allowed, start_pool=start_pool)
         if closest is None or cand[0] < closest[0]:
             closest = cand
         if cand[0] == 0:
@@ -1017,6 +1027,10 @@ def main():
                 seen.add(s); out.append(s)
         return out
 
+    def parse_voc_list(raw):
+        """Parse a comma-separated vocation list into a set (no group keywords)."""
+        return {x.strip() for x in raw.split(',') if x.strip()}
+
     # Rounding/nice modes: map each flag to its mode name and build a single
     # {stat: mode} dict, erroring if a stat lands in more than one mode.
     mode_flags = [('--perfect', a.perfect, 'perfect'),
@@ -1080,15 +1094,28 @@ def main():
     base_st = WEIGHTS[a.weight]
     regen, regen_pct = WEIGHT_STAREGEN[a.weight]
 
-    # --pawn restricts the advanced-vocation pool used in the 10->100 / 100->200
-    # ranges by removing the vocations a pawn cannot take.
-    allowed = [v for v in ALL if v not in PAWN_EXCLUDED] if a.pawn else ALL
+    # --avoid (and its --pawn alias) drop vocations from consideration entirely:
+    # they're removed from the pool used in every range. Basic vocations are also
+    # candidate start vocations, so avoiding them shrinks the start choices too.
+    avoid = parse_voc_list(a.avoid)
+    if a.pawn:
+        avoid |= set(PAWN_EXCLUDED)
+    bad = avoid - set(ALL)
+    if bad:
+        fail(f"unknown vocation(s) in --avoid: {','.join(sorted(bad))}; choices: {','.join(ALL)}")
+        return
+    if avoid >= set(BASIC):
+        fail("--avoid would drop all basic vocations (fighter/strider/mage); "
+             "at least one must remain as a start vocation")
+        return
+    allowed = [v for v in ALL if v not in avoid]
+    start_pool = [v for v in BASIC if v not in avoid]
 
     if not a.json:
         print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
-        if a.pawn:
-            print(c("pawn build: ", 'bold') +
-                  c("excluding " + ', '.join(PAWN_EXCLUDED), 'yellow'))
+        if avoid:
+            print(c("avoiding: ", 'bold') +
+                  c(', '.join(v for v in ALL if v in avoid), 'yellow'))
         # map each stat to the partner stats it must match (both directions)
         match_partners = {k: [] for k in STATS}
         for a_s, b_s in match:
@@ -1164,7 +1191,8 @@ def main():
         builds = solve_ilp(cons, count=count, rounding=rounding, nice=nice, match=match,
                            minimize_vocations=a.minimize_vocations, base_st=base_st,
                            allowed=allowed, maximize=maximize, minimize=minimize, bias=bias,
-                           weights={k: 1.0 for k in STATS} if a.equal_weights else None)
+                           weights={k: 1.0 for k in STATS} if a.equal_weights else None,
+                           start_pool=start_pool)
         if not builds:
             if a.json:
                 print(json.dumps({
@@ -1188,7 +1216,8 @@ def main():
                 if val:
                     print(c(f"\nnote: {flag} is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             print(c("\nsolver: ", 'dim') + c("search (stochastic hill-climb)", 'yellow'))
-        builds = run_search(cons, a, count=count, base_st=base_st, allowed=allowed)
+        builds = run_search(cons, a, count=count, base_st=base_st, allowed=allowed,
+                            start_pool=start_pool)
 
     if a.json:
         doc = {
@@ -1207,7 +1236,7 @@ def main():
                                 "nice": stat_mode.get(k) == 'nice'} for k in STATS},
             "match": [[a_s, b_s] for a_s, b_s in match],
             "pawn": a.pawn,
-            "excluded_vocations": PAWN_EXCLUDED if a.pawn else [],
+            "avoided_vocations": [v for v in ALL if v in avoid],
             "bias": bias,
             "maximize": maximize,
             "minimize": minimize,
