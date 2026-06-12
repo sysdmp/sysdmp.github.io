@@ -928,6 +928,13 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         title="leveling plan",
     )
     print(plan)
+    # Pre-level-10 vocation change warning: normally you can't switch vocations
+    # before level 10, so any 1->10 level in a vocation other than the start
+    # requires the Hard Mode restart trick.
+    if any(v != start and n > 0 for v, n in c10.items()):
+        print(c(" ⚠  changing vocation before level 10:", 'yellow', 'bold'))
+        print(c("    to do it, restart the game in Hard Mode — this resets save", 'yellow'))
+        print(c("    progress, but the character keeps its levels and items.", 'yellow'))
     # Vocation switches: each range's distinct vocations form that many leveling
     # stints (blocks); a switch is needed to enter every block except the first.
     blocks = sum(len(_clean(cc)) for cc in (c10, c100, c200))

@@ -87,8 +87,9 @@ Tighten or relax any stat with `--<stat>-min` / `--<stat>-max`, pin one exactly 
 
 By default the tool prints colored ASCII/Unicode tables: the target constraints (with
 a single `round` column showing each stat's rounding/nice mode), and for each build a
-**leveling plan** (start vocation, which vocation to level in each range, and the total
-**vocation switches** the plan requires) and the resulting **final stats** (green if a
+**leveling plan** (start vocation, which vocation to level in each range, the total
+**vocation switches** the plan requires, and a warning if it changes vocation before
+level 10) and the resulting **final stats** (green if a
 stat meets its requirement, red if not). The final-stats table ends with the summary
 rows **combat** (attack+mattack+defense+mdefense), **vitals** (hp+st), and **total**
 (all six), followed by the **weight class** (class, base stamina, stamina regen, max encumbrance).
@@ -110,6 +111,9 @@ found 1 build(s):
 | 10->100  |     90 | fighter x87  sorcerer x3                          |
 | 100->200 |    100 | strider x15  mage x22  sorcerer x52  assassin x11 |
 +----------+--------+---------------------------------------------------+
+ ⚠  changing vocation before level 10:
+    to do it, restart the game in Hard Mode — this resets save
+    progress, but the character keeps its levels and items.
  vocation switches: 6 (7 leveling blocks across the 3 ranges)
                       final stats
 +--------------+-------+---------------------------------+
