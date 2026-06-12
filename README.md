@@ -234,9 +234,10 @@ reported as infeasible.
 | `--seeds N`  | `search`: number of random restarts (default 8).                                   |
 | `--iters N`  | `search`: iterations per seed (default 1,500,000).                                 |
 
-The ILP solver is exact and fast; it tries starting vocations in order (`fighter`
-first) and enumerates distinct builds via no-good cuts when `--count > 1`. The
-`search` solver is a stochastic hill-climb used only as a fallback.
+The ILP solver is exact and fast; it evaluates every allowed start vocation and picks
+the one whose build best satisfies the objective (ties fall back to `fighter` /
+`strider` / `mage` order), enumerating distinct builds via no-good cuts when
+`--count > 1`. The `search` solver is a stochastic hill-climb used only as a fallback.
 
 ### Output control
 

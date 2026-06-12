@@ -436,8 +436,9 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
-    builds are returned, gathered across the three start vocations; within a
-    start, distinct solutions are enumerated with no-good cuts.
+    builds are returned, ranked across the allowed start vocations by the same
+    objective the solver optimizes; within a start, distinct solutions are
+    enumerated with no-good cuts.
 
     `rounding` maps a stat name to a divisor mode ('perfect' -> multiple of 100,
     'half_perfect' -> 50, 'decimal' -> 10; see DIVISOR_MODES). The stat's value
@@ -456,9 +457,10 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     number of distinct vocations that receive any level-ups, so feasible builds
     that require fewer vocation changes are preferred.
 
-    `allowed`: optional iterable restricting which vocations may be used in the
-    10->100 and 100->200 ranges (defaults to all). Basic vocations are always
-    permitted in the 1->10 range.
+    `allowed`: optional iterable restricting which vocations may be used in any
+    range (defaults to all); the 1->10 range uses the basics within it.
+    `start_pool`: optional iterable of allowed basic start vocations (defaults
+    to all basics).
 
     `maximize`: an ordered sequence of stat names to maximize, highest priority
     first, via sequential lexicographic optimization: the first stat is
@@ -566,8 +568,9 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
         #  2. maximize the (bias-weighted) total of final stats.
         # --maximize / --minimize sit ABOVE this via a lexicographic pre-pass
-        # below. Fighter start is preferred separately, by trying starts in BASIC
-        # order and stopping at `count`. No per-vocation cosmetic preferences.
+        # below. The start vocation is chosen by the resulting objective across
+        # all starts (see the candidate sort at the end), not by a fixed order.
+        # No per-vocation cosmetic preferences.
         W_VOC  = 10**9   # per used vocation; dominant
         W_STAT = 10**3   # per (weighted) stat point
         total_stats = pulp.lpSum(eff_weights[k] * exprs[k] for k in STATS)
@@ -699,7 +702,8 @@ def parse_args():
                     "  Find a build whose final stats meet your targets. Each stat takes an\n"
                     "  optional min and/or max (omit one to leave it unbounded), or an exact\n"
                     "  value. The ILP solver adds extra goals: rounding (perfect / half-\n"
-                    "  perfect / decimal / nice), match, bias / dump, and minimize-vocations.",
+                    "  perfect / decimal / nice), match, bias, maximize / minimize, and\n"
+                    "  minimize-vocations.",
         epilog=c("\nexamples:\n", 'bold', 'yellow') +
                "  # minimum HP and stamina, everything else default\n"
                "  ddda-build-solver.py --hp-min 3600 --st-min 4000\n\n"
@@ -1085,9 +1089,9 @@ def main():
     """CLI entry point: parse args, run the chosen solver, and print results.
 
     Parses and validates the stat bounds, rounding/nice modes, match pairs,
-    bias/dump priorities, weight class, and pawn restriction, dispatches to the
-    ILP or search solver, and emits either a JSON document (``--json``) or
-    colored tables.
+    bias tiers, maximize/minimize priorities, weight class, and avoided
+    vocations, dispatches to the ILP or search solver, and emits either a JSON
+    document (``--json``) or colored tables.
     """
     a = parse_args()
     if a.no_color:
