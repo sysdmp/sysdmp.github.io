@@ -52,9 +52,7 @@ The six stats tracked are **hp**, **st** (stamina), **attack**, **defense**,
 
 Because growth is **linear**, a build is fully described by *how many levels you spend
 in each (vocation, range)* plus your starting vocation. Final stats are the starting
-base plus the summed per-level gains. The growth tables are mirrored from the game's
-own `js/planner.js` data.
-
+base plus the summed per-level gains.
 The solver picks the level allocation that satisfies your constraints. With the
 default ILP solver this is an exact optimization; a stochastic fallback (`search`) is
 available when the ILP library is not installed.
@@ -190,10 +188,10 @@ balanced build from piling level-ups into them at the expense of combat stats.
 
 | Flag             | Meaning                                                                 |
 |------------------|-------------------------------------------------------------------------|
-| `--weight CLASS` | Weight class, which sets initial stamina and stamina-regen rate. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
+| `--weight CLASS` | Weight class, which sets base stamina and stamina-regen rate. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
 | `--pawn`         | Build for a pawn: disallow the vocations a pawn cannot take (`mknight`, `marcher`, `assassin`). |
 
-| Class | Body weight     | Init stamina | Stamina regen |
+| Class | Body weight     | Base stamina | Stamina regen |
 |-------|-----------------|--------------|---------------|
 | SS    | under 50 kg     | 500          | 53/s (125%)   |
 | S     | 50–69 kg        | 520          | 48/s (115%)   |

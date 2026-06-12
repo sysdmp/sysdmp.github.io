@@ -216,7 +216,7 @@ BALANCE_WEIGHTS = {
     'mdefense': 1.0,
 }
 
-# Character weight class sets initial stamina. The data above assumes M (540).
+# Character weight class sets base stamina. The data above assumes M (540).
 WEIGHTS = {'SS': 500, 'S': 520, 'M': 540, 'L': 560, 'LL': 580}
 # Body-weight range that determines each class (kg).
 WEIGHT_RANGES = {
@@ -244,7 +244,7 @@ def growth(voc, tier):
     if voc in basic: return basic[voc][tier]
     return adv[voc][tier]
 
-def stats_of(start, c10, c100, c200, init_st=None):
+def stats_of(start, c10, c100, c200, base_st=None):
     """Compute final stats for a build.
 
     Args:
@@ -252,15 +252,15 @@ def stats_of(start, c10, c100, c200, init_st=None):
         c10: dict {vocation: level-count} for the 1->10 range (sums to 9).
         c100: dict {vocation: level-count} for the 10->100 range (sums to 90).
         c200: dict {vocation: level-count} for the 100->200 range (sums to 100).
-        init_st: optional override for starting stamina (weight class); when
+        base_st: optional override for starting stamina (weight class); when
             None the data default (M = 540) baked into ``start`` is used.
 
     Returns:
         dict mapping each stat in STATS to its final value.
     """
     s = dict(basic[start]['init'])
-    if init_st is not None:
-        s['st'] = init_st   # weight class overrides the data's default (M=540)
+    if base_st is not None:
+        s['st'] = base_st   # weight class overrides the data's default (M=540)
     for counts, tier in ((c10, 'to10'), (c100, 'to100'), (c200, 'to200')):
         for voc, n in counts.items():
             g = growth(voc, tier)
@@ -310,7 +310,7 @@ def neighbors_move(c, vocs):
     nc = dict(c); nc[a]-=1; nc[b]+=1
     return nc
 
-def search(cons, iters=1500000, init_st=None, allowed=None):
+def search(cons, iters=1500000, base_st=None, allowed=None):
     """Stochastic hill-climb for a feasible build (fallback when PuLP is absent).
 
     Performs random restarts, each starting from a random vocation distribution
@@ -320,7 +320,7 @@ def search(cons, iters=1500000, init_st=None, allowed=None):
     Args:
         cons: dict {stat: (min, max)} target constraints.
         iters: total moves to attempt, split evenly across restarts.
-        init_st: optional starting-stamina override (weight class).
+        base_st: optional starting-stamina override (weight class).
         allowed: optional iterable restricting which vocations may be used in
             the 10->100 and 100->200 ranges (defaults to all). Basic vocations
             are always permitted in the 1->10 range.
@@ -337,12 +337,12 @@ def search(cons, iters=1500000, init_st=None, allowed=None):
         c10 = rand_counts(BASIC, 9)
         c100 = rand_counts(adv_pool, 90)
         c200 = rand_counts(adv_pool, 100)
-        cur_p = penalty(stats_of(start,c10,c100,c200,init_st), cons)
+        cur_p = penalty(stats_of(start,c10,c100,c200,base_st), cons)
         for it in range(iters//60):
             which = random.random()
             if which < 0.1:
                 nstart = random.choice(BASIC); nc10,nc100,nc200=c10,c100,c200
-                np_ = penalty(stats_of(nstart,nc10,nc100,nc200,init_st), cons)
+                np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
                 if np_<=cur_p:
                     start=nstart; cur_p=np_
                 continue
@@ -358,10 +358,10 @@ def search(cons, iters=1500000, init_st=None, allowed=None):
                 m = neighbors_move(c200, adv_pool)
                 if m is None: continue
                 nc10,nc100,nc200=c10,c100,m; nstart=start
-            np_ = penalty(stats_of(nstart,nc10,nc100,nc200,init_st), cons)
+            np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
             if np_<=cur_p:
                 c10,c100,c200=nc10,nc100,nc200; cur_p=np_
-        s = stats_of(start,c10,c100,c200,init_st)
+        s = stats_of(start,c10,c100,c200,base_st)
         cand = (cur_p, start, c10, c100, c200, s)
         if best is None or cand[0]<best[0]:
             best = cand
@@ -398,7 +398,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
 
 def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
-              minimize_vocations=False, init_st=None, allowed=None, bias=(), dump=()):
+              minimize_vocations=False, base_st=None, allowed=None, bias=(), dump=()):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -446,8 +446,8 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
         if len(results) >= count:
             break
         base = dict(basic[start]['init'])
-        if init_st is not None:
-            base['st'] = init_st   # weight class overrides the data's default (M=540)
+        if base_st is not None:
+            base['st'] = base_st   # weight class overrides the data's default (M=540)
 
         prob = pulp.LpProblem("build", pulp.LpMinimize)
         # integer count of level-ups taken in each (vocation, tier), with upper
@@ -565,7 +565,7 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
             c10  = {v: int(round(x10[v].value()))  for v in BASIC}
             c100 = {v: int(round(x100[v].value())) for v in adv_pool}
             c200 = {v: int(round(x200[v].value())) for v in adv_pool}
-            s = stats_of(start, c10, c100, c200, init_st=init_st)
+            s = stats_of(start, c10, c100, c200, base_st=base_st)
             results.append((penalty(s, eval_cons), start, c10, c100, c200, s))
 
             # No-good cut: force the next solution to differ from this one in at
@@ -673,7 +673,7 @@ def parse_args():
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
     g_char.add_argument('--weight', choices=list(WEIGHTS), default='M', metavar='CLASS',
                         type=lambda s: s.upper(),  # accept ss / Ss / sS as SS, etc.
-                        help="weight class -> initial stamina and regen:\n" + weights_desc +
+                        help="weight class -> base stamina and regen:\n" + weights_desc +
                              "\n(default: M; case-insensitive)")
     g_char.add_argument('--pawn', action='store_true',
                         help="build for a pawn: disallow the vocations a pawn\n"
@@ -706,7 +706,7 @@ def parse_args():
 
     return ap.parse_args()
 
-def run_search(cons, a, count=1, init_st=None, allowed=None):
+def run_search(cons, a, count=1, base_st=None, allowed=None):
     """Returns a list of feasible builds (penalty 0), distinct by their vocation
     distribution, gathered across random restarts. If none are feasible, returns
     a single-element list with the closest build found (penalty > 0)."""
@@ -715,7 +715,7 @@ def run_search(cons, a, count=1, init_st=None, allowed=None):
     n_seeds = max(a.seeds, count * a.seeds)
     for i in range(n_seeds):
         random.seed(a.seed + i)
-        cand = search(cons, iters=a.iters, init_st=init_st, allowed=allowed)
+        cand = search(cons, iters=a.iters, base_st=base_st, allowed=allowed)
         if closest is None or cand[0] < closest[0]:
             closest = cand
         if cand[0] == 0:
@@ -953,7 +953,7 @@ def main():
             return
         match.append((a_stat, b_stat))
 
-    init_st = WEIGHTS[a.weight]
+    base_st = WEIGHTS[a.weight]
     regen, regen_pct = WEIGHT_STAREGEN[a.weight]
 
     # --pawn restricts the advanced-vocation pool used in the 10->100 / 100->200
@@ -963,9 +963,9 @@ def main():
     if not a.json:
         print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
         print(render_table(
-            ["weight", "range", "init stamina", "stamina regen"],
+            ["weight", "range", "base stamina", "stamina regen"],
             [[c(a.weight,'magenta','bold'), WEIGHT_RANGES[a.weight],
-              c(str(init_st),'bold'), f"{regen}/s ({regen_pct})"]],
+              c(str(base_st),'bold'), f"{regen}/s ({regen_pct})"]],
             aligns=['center','left','right','left'],
             title="character weight class",
         ))
@@ -1045,7 +1045,7 @@ def main():
         if not a.json:
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         builds = solve_ilp(cons, count=count, rounding=rounding, neat=neat, match=match,
-                           minimize_vocations=a.minimize_vocations, init_st=init_st,
+                           minimize_vocations=a.minimize_vocations, base_st=base_st,
                            allowed=allowed, bias=bias, dump=dump)
         if not builds:
             if a.json:
@@ -1070,14 +1070,14 @@ def main():
                 if val:
                     print(c(f"\nnote: {flag} is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             print(c("\nsolver: ", 'dim') + c("search (stochastic hill-climb)", 'yellow'))
-        builds = run_search(cons, a, count=count, init_st=init_st, allowed=allowed)
+        builds = run_search(cons, a, count=count, base_st=base_st, allowed=allowed)
 
     if a.json:
         doc = {
             "weight": {
                 "class": a.weight,
                 "range": WEIGHT_RANGES[a.weight],
-                "initial_stamina": init_st,
+                "base_stamina": base_st,
                 "stamina_regen_per_sec": regen,
                 "stamina_regen_pct": regen_pct,
             },
