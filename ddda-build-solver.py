@@ -1028,20 +1028,23 @@ def main():
             lo, hi = comp_of[k]   # effective (group-intersected) bounds
             is_exact = k in exact
             partners = match_partners[k]
+            # collapse the four rounding modes into one label (mutually exclusive)
+            if   k in perfect:      round_label = c(f"{GLYPH['mul']}100", 'green')
+            elif k in half_perfect: round_label = c(f"{GLYPH['mul']}50", 'green')
+            elif k in decimal:      round_label = c(f"{GLYPH['mul']}10", 'green')
+            elif k in neat:         round_label = c("neat", 'green')
+            else:                   round_label = c(GLYPH['dash'], 'dim')
             crows.append([
                 c(k,'cyan'),
                 c(str(lo) if lo is not None else GLYPH['dash'], 'dim' if lo is None else None),
                 c(str(hi) if hi is not None else GLYPH['dash'], 'dim' if hi is None else None),
                 c('yes','green') if is_exact else c(GLYPH['dash'],'dim'),
-                c('yes','green') if k in perfect else c(GLYPH['dash'],'dim'),
-                c('yes','green') if k in half_perfect else c(GLYPH['dash'],'dim'),
-                c('yes','green') if k in decimal else c(GLYPH['dash'],'dim'),
-                c('yes','green') if k in neat else c(GLYPH['dash'],'dim'),
+                round_label,
                 c(', '.join(partners),'green') if partners else c(GLYPH['dash'],'dim'),
             ])
         print(render_table(
-            ["stat", "min", "max", "exact", "perfect", "half-perf", "decimal", "neat", "match"],
-            crows, aligns=['left','right','right','center','center','center','center','center','left'],
+            ["stat", "min", "max", "exact", "round", "match"],
+            crows, aligns=['left','right','right','center','center','left'],
             title="target constraints",
         ))
 
