@@ -86,7 +86,7 @@ Tighten or relax any stat with `--<stat>-min` / `--<stat>-max`, pin one exactly 
 ## Output
 
 By default the tool prints colored ASCII/Unicode tables: your weight class, the
-target constraints (with a single `round` column showing each stat's rounding/neat
+target constraints (with a single `round` column showing each stat's rounding/nice
 mode), and for each build a **leveling plan** (which vocation to level in each range,
 followed by the total **vocation switches** the plan requires) and the resulting
 **final stats** (green if a stat meets its requirement, red if not). The final-stats
@@ -164,7 +164,7 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 | `--perfect STATS`     | a **multiple of 100** (e.g. 500).                                            |
 | `--half-perfect STATS`| a **multiple of 50** (e.g. 450).                                            |
 | `--decimal STATS`     | a **multiple of 10** (e.g. 430).                                            |
-| `--neat STATS`        | a **"neat" number**: `666`, ending in `42` or `69`, all-same-digit (`444`), or a multiple of 100. |
+| `--nice STATS`        | a **"nice" number**: ending in `42` or `69`, or all-same-digit (`444`, `666`). |
 
 **Other goals:**
 
@@ -234,7 +234,7 @@ first) and enumerates distinct builds via no-good cuts when `--count > 1`. The
 | `--charset`   | Table characters: `auto` (by locale, default), `unicode`, or `ascii`.    |
 
 The JSON document includes the weight class, the full constraints (with `exact`,
-`perfect`, `half_perfect`, `decimal`, and `neat` flags per stat), the `match` pairs,
+`perfect`, `half_perfect`, `decimal`, and `nice` flags per stat), the `match` pairs,
 the `pawn` flag and any `excluded_vocations`, the `bias` and `dump` lists, the solver
 used, and a `builds` array. Each build reports its `start` vocation, per-range
 `levels`, `vocation_switches`, `final_stats`, a `totals` object (`combat` / `vitals` /
@@ -256,11 +256,11 @@ $ ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocati
 # Plan a pawn build (no Mystic Knight / Magick Archer / Assassin)
 $ ddda-build-solver.py --pawn
 
-# Heavy character, "neat" HP, machine-readable output
-$ ddda-build-solver.py --weight LL --neat hp --json
+# Heavy character, "nice" HP, machine-readable output
+$ ddda-build-solver.py --weight LL --nice hp --json
 
-# Force every final stat to a "neat" number
-$ ddda-build-solver.py --neat all
+# Force every final stat to a "nice" number
+$ ddda-build-solver.py --nice all
 
 # Maximize attack first, then defense (priority order)
 $ ddda-build-solver.py --bias attack,defense

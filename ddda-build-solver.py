@@ -195,7 +195,7 @@ ALL = list(basic.keys()) + list(adv.keys())
 # Advanced vocations disabled by --pawn (vocations a pawn cannot take).
 PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
 # Divisor-based "rounding" modes: each forces a stat to a multiple of its
-# divisor. Keyed by the --flag name; 'neat' is handled separately (enumerated).
+# divisor. Keyed by the --flag name; 'nice' is handled separately (enumerated).
 DIVISOR_MODES = {'perfect': 100, 'half_perfect': 50, 'decimal': 10}
 # Built-in default (min, max) per stat, applied unless --no-default is given.
 STAT_DEFAULTS = {
@@ -370,29 +370,26 @@ def search(cons, iters=1500000, base_st=None, allowed=None):
             best = cand
     return best
 
-def is_neat(n):
-    """Return True if ``n`` is a 'neat' number.
+def is_nice(n):
+    """Return True if ``n`` is a 'nice' number.
 
-    Neat numbers are: exactly 666; anything ending in 42 or 69; a repdigit (all
-    digits identical, e.g. 444, 7777); or a "perfect" number, i.e. a multiple of
-    100 (matching the ``--perfect`` definition).
+    Nice numbers are: anything ending in 42 or 69; or a repdigit (all digits
+    identical, e.g. 444, 7777 — this also covers 666).
     """
-    if n == 666: return True
     if n % 100 == 42: return True
     if n % 100 == 69: return True
-    if len(set(str(n))) == 1: return True   # repdigit (e.g. 111, 4444)
-    if n != 0 and n % 100 == 0: return True  # perfect: multiple of 100
+    if len(set(str(n))) == 1: return True   # repdigit (e.g. 111, 4444, 666)
     return False
 
-def neat_values(lo, hi):
-    """List the neat numbers in the inclusive range [lo, hi] (sorted ascending)."""
-    return [n for n in range(max(0, lo), hi + 1) if is_neat(n)]
+def nice_values(lo, hi):
+    """List the nice numbers in the inclusive range [lo, hi] (sorted ascending)."""
+    return [n for n in range(max(0, lo), hi + 1) if is_nice(n)]
 
 def _stat_upper_bound(k, base, adv_pool=ALL):
     """Tight upper bound on stat ``k`` for a build starting from ``base``.
 
     Equals the base value plus the maximum possible per-level gain in each
-    range; used only to bound the neat-value enumeration in the ILP. ``adv_pool``
+    range; used only to bound the nice-value enumeration in the ILP. ``adv_pool``
     restricts the vocations available in the 10->100 and 100->200 ranges.
     """
     m10  = max(growth(v, 'to10')[k]  for v in BASIC)
@@ -400,7 +397,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
     m200 = max(growth(v, 'to200')[k] for v in adv_pool)
     return base[k] + 9 * m10 + 90 * m100 + 100 * m200
 
-def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
+def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None, bias=(), dump=(),
               weights=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
@@ -414,9 +411,9 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
     is forced to divisor*k via a fresh integer k, its max bound is dropped, and
     its min (if any) is kept as a floor.
 
-    `neat` is a set of stat names that must each be a "neat" number (see
-    ``is_neat``). Like the rounding modes, the max bound is dropped and the min
-    kept as a floor; the value is forced into the enumerated neat set via binary
+    `nice` is a set of stat names that must each be a "nice" number (see
+    ``is_nice``). Like the rounding modes, the max bound is dropped and the min
+    kept as a floor; the value is forced into the enumerated nice set via binary
     selectors.
 
     `match` is an iterable of (stat_a, stat_b) pairs whose final values are
@@ -445,7 +442,7 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
     every stat equally.
     """
     rounding = dict(rounding or {})
-    neat = set(neat)
+    nice = set(nice)
     weights = weights if weights is not None else BALANCE_WEIGHTS
     adv_pool = list(allowed) if allowed is not None else ALL
     candidates = []   # (quality_key, build) across all starts; sorted at the end
@@ -486,17 +483,17 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
                 mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
                 prob += expr == divisor * mult
                 if lo is not None: prob += expr >= lo
-            elif k in neat:
-                # neat mode: value must be one of the enumerated neat numbers in
+            elif k in nice:
+                # nice mode: value must be one of the enumerated nice numbers in
                 # [floor, reachable-max]. Pick exactly one via binary selectors.
                 floor = lo if lo is not None else 0
                 ub = _stat_upper_bound(k, base, adv_pool)
-                choices = neat_values(floor, ub)
+                choices = nice_values(floor, ub)
                 if not choices:
-                    # no neat value is reachable for this stat -> infeasible start
+                    # no nice value is reachable for this stat -> infeasible start
                     prob += expr <= -1   # trivially unsatisfiable
                 else:
-                    sel = {nv: pulp.LpVariable(f"neat_{k}_{nv}_{start}", cat="Binary") for nv in choices}
+                    sel = {nv: pulp.LpVariable(f"nice_{k}_{nv}_{start}", cat="Binary") for nv in choices}
                     prob += pulp.lpSum(sel.values()) == 1
                     prob += expr == pulp.lpSum(nv * sel[nv] for nv in choices)
                 if lo is not None: prob += expr >= lo
@@ -509,8 +506,8 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
             prob += exprs[a_stat] == exprs[b_stat]
 
         # penalty is reported against constraints as actually enforced: rounding
-        # and neat stats keep only their floor, so their dropped max isn't counted.
-        relaxed = set(rounding) | neat
+        # and nice stats keep only their floor, so their dropped max isn't counted.
+        relaxed = set(rounding) | nice
         eval_cons = {k: ((cons[k][0], None) if k in relaxed else cons[k]) for k in STATS}
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
@@ -632,7 +629,7 @@ def parse_args():
                     "  Find a build whose final stats meet your targets. Each stat takes an\n"
                     "  optional min and/or max (omit one to leave it unbounded), or an exact\n"
                     "  value. The ILP solver adds extra goals: rounding (perfect / half-\n"
-                    "  perfect / decimal / neat), match, bias / dump, and minimize-vocations.",
+                    "  perfect / decimal / nice), match, bias / dump, and minimize-vocations.",
         epilog=c("\nexamples:\n", 'bold', 'yellow') +
                "  # minimum HP and stamina, everything else default\n"
                "  ddda-build-solver.py --hp-min 3600 --st-min 4000\n\n"
@@ -640,8 +637,8 @@ def parse_args():
                "  ddda-build-solver.py --attack 550 --count 3\n\n"
                "  # keep physical and magick stats equal, fewest vocation changes\n"
                "  ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocations\n\n"
-               "  # heavy character, neat HP, machine-readable output\n"
-               "  ddda-build-solver.py --weight LL --neat hp --json\n")
+               "  # heavy character, nice HP, machine-readable output\n"
+               "  ddda-build-solver.py --weight LL --nice hp --json\n")
 
     g_stats = ap.add_argument_group(c('\U0001f3af  stat targets', 'bold'),
         "Per stat: --STAT pins an exact value; --STAT-min / --STAT-max set bounds.\n"
@@ -680,10 +677,9 @@ def parse_args():
     g_goals.add_argument('--decimal', type=str, default='', metavar='STATS',
                          help="like --perfect but a multiple of 10 (e.g. 430)\n"
                               "stats: " + ','.join(STATS) + " (or 'all')")
-    g_goals.add_argument('--neat', type=str, default='', metavar='STATS',
-                         help="comma-separated stats forced to a 'neat' number:\n"
-                              "666, ending in 42 or 69, all-same-digit (444),\n"
-                              "or a multiple of 100\n"
+    g_goals.add_argument('--nice', type=str, default='', metavar='STATS',
+                         help="comma-separated stats forced to a 'nice' number:\n"
+                              "ending in 42 or 69, or all-same-digit (444, 666)\n"
                               "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--match', type=str, default='', metavar='PAIRS',
                          help="comma-separated stat pairs forced to equal values,\n"
@@ -782,7 +778,7 @@ def _fmt_levels(counts):
     items = [(v, counts[v]) for v in VOC_ORDER if counts.get(v, 0) > 0]
     return '  '.join(f"{c(v,'magenta')} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
 
-def print_build(idx, build, cons, rounding=None, neat=()):
+def print_build(idx, build, cons, rounding=None, nice=()):
     """Print one build as a colored header plus leveling-plan and final-stats tables.
 
     Args:
@@ -792,12 +788,12 @@ def print_build(idx, build, cons, rounding=None, neat=()):
         rounding: {stat: divisor-mode-name} map (see DIVISOR_MODES); these stats'
             max bound is ignored when judging requirements, and annotated (e.g.
             "x100") in the requirement column.
-        neat: iterable of stats in "neat" mode, whose max bound is likewise
-            ignored (the value is annotated as "neat" in the requirement column).
+        nice: iterable of stats in "nice" mode, whose max bound is likewise
+            ignored (the value is annotated as "nice" in the requirement column).
     """
     p,start,c10,c100,c200,s = build
     rounding = dict(rounding or {})
-    neat = set(neat)
+    nice = set(nice)
 
     head = c(f"build {idx}", 'bold', 'white')
     status = c(f"{GLYPH['ok']} all requirements met", 'bold', 'green') if p == 0 \
@@ -831,14 +827,14 @@ def print_build(idx, build, cons, rounding=None, neat=()):
     rows = []
     for k in STATS:
         lo, hi = cons[k]
-        hi_eff = None if (k in rounding or k in neat) else hi
+        hi_eff = None if (k in rounding or k in nice) else hi
         ok = (lo is None or s[k] >= lo) and (hi_eff is None or s[k] <= hi_eff)
         val = c(str(s[k]), 'green' if ok else 'red', 'bold')
         bound = []
         if lo is not None: bound.append(f"{GLYPH['ge']}{lo}")
         if hi_eff is not None: bound.append(f"{GLYPH['le']}{hi_eff}")
         if k in rounding: bound.append(f"{GLYPH['mul']}{DIVISOR_MODES[rounding[k]]}")
-        if k in neat: bound.append("neat")
+        if k in nice: bound.append("nice")
         rows.append([c(k,'cyan'), val, c(' '.join(bound) or GLYPH['dash'], 'dim')])
     # summary totals
     combat = s['attack'] + s['mattack'] + s['defense'] + s['mdefense']
@@ -881,7 +877,7 @@ def build_to_dict(build):
 def main():
     """CLI entry point: parse args, run the chosen solver, and print results.
 
-    Parses and validates the stat bounds, rounding/neat modes, match pairs,
+    Parses and validates the stat bounds, rounding/nice modes, match pairs,
     bias/dump priorities, weight class, and pawn restriction, dispatches to the
     ILP or search solver, and emits either a JSON document (``--json``) or
     colored tables.
@@ -940,12 +936,12 @@ def main():
                 seen.add(s); out.append(s)
         return out
 
-    # Rounding/neat modes: map each flag to its mode name and build a single
+    # Rounding/nice modes: map each flag to its mode name and build a single
     # {stat: mode} dict, erroring if a stat lands in more than one mode.
     mode_flags = [('--perfect', a.perfect, 'perfect'),
                   ('--half-perfect', a.half_perfect, 'half_perfect'),
                   ('--decimal', a.decimal, 'decimal'),
-                  ('--neat', a.neat, 'neat')]
+                  ('--nice', a.nice, 'nice')]
     stat_mode = {}   # {stat: mode-name}
     for flag, raw, mode in mode_flags:
         names = parse_stat_list(raw)
@@ -955,14 +951,14 @@ def main():
             return
         for s in names:
             if s in exact:
-                continue   # an exact value overrides any rounding/neat mode
+                continue   # an exact value overrides any rounding/nice mode
             if s in stat_mode and stat_mode[s] != mode:
                 fail(f"stat '{s}' has conflicting modes ({stat_mode[s]} and {mode})")
                 return
             stat_mode[s] = mode
-    # split into the divisor-based rounding map and the neat set
+    # split into the divisor-based rounding map and the nice set
     rounding = {s: m for s, m in stat_mode.items() if m in DIVISOR_MODES}
-    neat = [s for s, m in stat_mode.items() if m == 'neat']
+    nice = [s for s, m in stat_mode.items() if m == 'nice']
 
     # --bias: ordered list of stats to maximize (highest priority first).
     bias = parse_stat_list(a.bias)
@@ -1051,12 +1047,12 @@ def main():
             lo, hi = comp_of[k]   # effective (group-intersected) bounds
             is_exact = k in exact
             partners = match_partners[k]
-            # single label for the stat's rounding/neat mode (mutually exclusive)
+            # single label for the stat's rounding/nice mode (mutually exclusive)
             mode = stat_mode.get(k)
             if mode in DIVISOR_MODES:
                 round_label = c(f"{GLYPH['mul']}{DIVISOR_MODES[mode]}", 'green')
-            elif mode == 'neat':
-                round_label = c("neat", 'green')
+            elif mode == 'nice':
+                round_label = c("nice", 'green')
             else:
                 round_label = c(GLYPH['dash'], 'dim')
             crows.append([
@@ -1090,7 +1086,7 @@ def main():
     if method == 'ilp':
         if not a.json:
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
-        builds = solve_ilp(cons, count=count, rounding=rounding, neat=neat, match=match,
+        builds = solve_ilp(cons, count=count, rounding=rounding, nice=nice, match=match,
                            minimize_vocations=a.minimize_vocations, base_st=base_st,
                            allowed=allowed, bias=bias, dump=dump,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None)
@@ -1110,7 +1106,7 @@ def main():
     else:
         if not a.json:
             ilp_only = [('--perfect', a.perfect), ('--half-perfect', a.half_perfect),
-                        ('--decimal', a.decimal), ('--neat', a.neat), ('--match', a.match),
+                        ('--decimal', a.decimal), ('--nice', a.nice), ('--match', a.match),
                         ('--minimize-vocations', a.minimize_vocations),
                         ('--bias', a.bias), ('--dump', a.dump)]
             for flag, val in ilp_only:
@@ -1133,7 +1129,7 @@ def main():
                                 "perfect": stat_mode.get(k) == 'perfect',
                                 "half_perfect": stat_mode.get(k) == 'half_perfect',
                                 "decimal": stat_mode.get(k) == 'decimal',
-                                "neat": stat_mode.get(k) == 'neat'} for k in STATS},
+                                "nice": stat_mode.get(k) == 'nice'} for k in STATS},
             "match": [[a_s, b_s] for a_s, b_s in match],
             "pawn": a.pawn,
             "excluded_vocations": PAWN_EXCLUDED if a.pawn else [],
@@ -1149,7 +1145,7 @@ def main():
 
     print(c(f"\nfound {len(builds)} build(s)", 'bold') + (c(f" (requested {count})", 'dim') if count > 1 else "") + ":")
     for i, b in enumerate(builds, 1):
-        print_build(i, b, cons, rounding, neat)
+        print_build(i, b, cons, rounding, nice)
     if len(builds) < count:
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
 
