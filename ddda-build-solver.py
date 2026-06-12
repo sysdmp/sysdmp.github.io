@@ -1373,17 +1373,22 @@ def main():
                 if val:
                     print(c(f"\nnote: {flag} is only supported by the ILP solver; ignoring it for search.", 'yellow'))
             print(c("\nsolver: ", 'dim') + c("search (stochastic hill-climb)", 'yellow'))
+        _t0 = time.perf_counter()
         builds, interrupted = run_search(cons, a, count=count, base_st=base_st, allowed=allowed,
                             start_pool=start_pool,
                             show_progress=not a.json and sys.stderr.isatty())
+        solve_time = time.perf_counter() - _t0
         if interrupted and not a.json:
             print(c("\nsearch interrupted — showing the best build found so far.", 'yellow', 'bold'))
         if not builds:
             if not a.json:
                 print(c("\nsearch interrupted before any build was evaluated.", 'yellow'))
+                print(c(f"solve time: {solve_time:.3f}s", 'dim'))
             else:
                 print(json.dumps({"feasible": False, "solver": method,
-                                  "interrupted": True, "builds": []}, indent=2))
+                                  "interrupted": True,
+                                  "solve_time_sec": round(solve_time, 3),
+                                  "builds": []}, indent=2))
             return
 
     if a.json:
