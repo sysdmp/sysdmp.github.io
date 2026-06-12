@@ -172,6 +172,7 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 | `--bias STATS`          | Comma-separated stats to **maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Empty (default) maximizes the total stat sum, with hp/st discounted (see below). |
 | `--dump STATS`          | Comma-separated stats to **minimize**, highest priority first. Ranked below `--bias`, above the total-stat maximization. |
 | `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the bias/dump/total objective. |
+| `--equal-weights`       | Value **hp/st equally** with the other stats in the balanced objective (by default they're discounted — see below). |
 
 **Group keywords** — anywhere a `STATS` list is accepted (rounding modes, `--bias`,
 `--dump`), two shorthands expand to multiple stats:
@@ -182,7 +183,8 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 **Balanced objective (no `--bias`):** by default the solver maximizes a *weighted*
 total of the final stats, with **hp and st discounted** (weight 0.1 vs 1.0 for the
 combat stats). hp/st have large raw values and grow cheaply, so this stops the
-balanced build from piling level-ups into them at the expense of combat stats.
+balanced build from piling level-ups into them at the expense of combat stats. Pass
+`--equal-weights` to value every stat equally instead.
 
 ### Character
 
