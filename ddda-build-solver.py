@@ -528,9 +528,9 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # Per-stat objective weights: the base balance weights plus any --bias
         # boost. The i-th biased stat adds BIAS_BOOST_BASE * FALLOFF**i, divided
         # by the stat's MAX_GAIN so the boost rewards "leveling invested" rather
-        # than raw points -- otherwise fast-growing stats (hp) would dominate
-        # slow ones (mdefense) regardless of the listed order. Soft preference,
-        # traded off against other stats -- not a hard ordering.
+        # than raw points. This pushes higher-priority biased stats further within
+        # the weighted total; the equal-share floor below guarantees each biased
+        # stat grows at all (the weighted sum alone is winner-take-all per range).
         eff_weights = dict(weights)
         for i, stat in enumerate(bias):
             eff_weights[stat] += BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** i) / MAX_GAIN[stat]
@@ -579,6 +579,27 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                 prob += exprs[stat] <= opt   # pin minimized optimum
         if infeasible_start:
             continue  # this start vocation cannot satisfy the constraints
+
+        # --bias "equal-share floor then maximize": a single weighted-sum objective
+        # is winner-take-all per range (e.g. assassin dominates attack and gives 0
+        # mdefense, so a lower-priority biased stat never moves). To guarantee every
+        # biased stat grows -- earlier ones more -- first maximize a shared t under
+        #   value(stat_i) >= share_i * t * MAX_GAIN[stat_i],   share_i = FALLOFF**i
+        # which pulls the biased stats up together in priority proportion. Then bake
+        # the achieved gains in as floors and let the weighted total maximize within.
+        if bias:
+            t = pulp.LpVariable(f"bias_t_{start}", lowBound=0)
+            for i, stat in enumerate(bias):
+                share = BIAS_BOOST_FALLOFF ** i
+                prob += exprs[stat] >= share * MAX_GAIN[stat] * t
+            prob.setObjective(-t)   # maximize t
+            prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            if pulp.LpStatus[prob.status] != "Optimal":
+                continue
+            t_opt = t.value() or 0.0
+            for i, stat in enumerate(bias):
+                share = BIAS_BOOST_FALLOFF ** i
+                prob += exprs[stat] >= int(share * MAX_GAIN[stat] * t_opt)   # bake floor
 
         prob.setObjective(base_objective)
 
