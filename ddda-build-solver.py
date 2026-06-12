@@ -474,28 +474,31 @@ def solve_ilp(cons, count=1, perfect=(), neat=(), match=(), minimize_vocations=F
         relaxed = perfect | neat
         eval_cons = {k: ((cons[k][0], None) if k in relaxed else cons[k]) for k in STATS}
 
-        # Objective:
-        #  - 1->10 range: encourage mage levels (prefer mage there when feasible).
-        #  - 10->100 range: discourage mage levels, encourage sorcerer levels.
-        # Among equally-feasible builds the solver leans toward these choices.
-        # (Was pure feasibility: prob += 0.)
-        # Note: fighter start vocation is preferred separately, by trying starts
-        # in BASIC order (fighter first) and stopping once `count` builds are found.
-        objective = -x10['mage'] + x100['mage'] - x100['sorcerer']
+        # Objective (lexicographic via weight magnitudes; all minimized):
+        #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
+        #  2. maximize total final stats, so among otherwise-equal builds the one
+        #     that leaves no stat lower is preferred (e.g. higher HP wins).
+        #  3. cosmetic tie-breakers: in 1->10 prefer mage; in 10->100 discourage
+        #     mage and encourage sorcerer.
+        # (Was pure feasibility: prob += 0.) Fighter start is preferred separately,
+        # by trying starts in BASIC order (fighter first) and stopping at `count`.
+        W_VOC  = 10**9   # per used vocation; dwarfs the max possible stat sum
+        W_STAT = 10**3   # per stat point; dwarfs the cosmetic prefs (magnitude < 200)
+        prefs = -x10['mage'] + x100['mage'] - x100['sorcerer']
+        total_stats = pulp.lpSum(exprs[k] for k in STATS)
+        objective = -W_STAT * total_stats + prefs
 
         if minimize_vocations:
             # A vocation is "used" if it receives any level in any tier. Bind a
-            # binary used[v] >= (its level share) / blocksize, then minimize the
-            # total count of used vocations as the dominant objective term.
+            # binary used[v] so used[v]=1 whenever that vocation has levels, then
+            # minimize the count of used vocations as the dominant term.
             tiers = [(x10, BASIC, 9), (x100, ALL, 90), (x200, ALL, 100)]
             used = {v: pulp.LpVariable(f"used_{v}_{start}", cat="Binary") for v in adv_pool}
             for xs, vocs, U in tiers:
                 for v in vocs:
                     # if x[v] > 0 then used[v] must be 1 (x[v] <= U * used[v])
                     prob += xs[v] <= U * used[v]
-            # Weight high enough to dominate the soft mage/sorcerer preferences,
-            # whose combined magnitude is bounded by the block sizes (<= ~180).
-            objective = 1000 * pulp.lpSum(used.values()) + objective
+            objective = W_VOC * pulp.lpSum(used.values()) + objective
 
         prob += objective
 
