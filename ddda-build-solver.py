@@ -803,6 +803,18 @@ def print_build(idx, build, cons, perfect, neat=(), half_perfect=()):
         if k in half_perfect: bound.append(f"{GLYPH['mul']}50")
         if k in neat: bound.append("neat")
         rows.append([c(k,'cyan'), val, c(' '.join(bound) or GLYPH['dash'], 'dim')])
+    # summary totals
+    combat = s['attack'] + s['mattack'] + s['defense'] + s['mdefense']
+    vitals = s['hp'] + s['st']
+    grand  = combat + vitals
+    sep = c(GLYPH['h'] * 3, 'dim')
+    rows.append([sep, sep, sep])
+    rows.append([c('combat', 'yellow'), c(str(combat), 'yellow', 'bold'),
+                 c('attack+mattack+defense+mdefense', 'dim')])
+    rows.append([c('vitals', 'yellow'), c(str(vitals), 'yellow', 'bold'),
+                 c('hp + st', 'dim')])
+    rows.append([c('total', 'yellow'), c(str(grand), 'yellow', 'bold'),
+                 c('all stats', 'dim')])
     print(render_table(
         ["stat", "value", "requirement"],
         rows, aligns=['left', 'right', 'left'], title="final stats",
@@ -821,6 +833,11 @@ def build_to_dict(build):
             "to200": _clean(c200),
         },
         "final_stats": s,
+        "totals": {
+            "combat": s['attack'] + s['mattack'] + s['defense'] + s['mdefense'],
+            "vitals": s['hp'] + s['st'],
+            "all": sum(s[k] for k in STATS),
+        },
     }
 
 def main():
