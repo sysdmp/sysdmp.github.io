@@ -509,17 +509,16 @@ def solve_ilp(cons, count=1, rounding=None, neat=(), match=(),
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
         #  2. maximize the weighted total of final stats (BALANCE_WEIGHTS), so the
         #     balanced build favors raising combat stats over piling into hp/st.
-        #  3. cosmetic tie-breakers: in 1->10 prefer mage; in 10->100 discourage
-        #     mage and encourage sorcerer.
         # The --bias / --dump stats sit ABOVE all of this and are handled by a
         # separate lexicographic pre-pass below (each optimized in turn, then
         # pinned). Fighter start is preferred separately, by trying starts in
         # BASIC order (fighter first) and stopping once `count` builds are found.
+        # No per-vocation cosmetic preferences: the stat totals and the supplied
+        # constraints alone dictate which vocations get leveled.
         W_VOC  = 10**9   # per used vocation; dominant
-        W_STAT = 10**3   # per (weighted) stat point; dwarfs the cosmetic prefs (mag < 200)
-        prefs = -x10['mage'] + x100['mage'] - x100['sorcerer']
+        W_STAT = 10**3   # per (weighted) stat point
         total_stats = pulp.lpSum(BALANCE_WEIGHTS[k] * exprs[k] for k in STATS)
-        base_objective = -W_STAT * total_stats + prefs
+        base_objective = -W_STAT * total_stats
 
         if minimize_vocations:
             # A vocation is "used" if it receives any level in any tier. Bind a
