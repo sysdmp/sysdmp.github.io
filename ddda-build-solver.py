@@ -414,7 +414,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL):
 
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None,
-              maximize=(), minimize=(), bias=(), weights=None, start_pool=None):
+              maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -450,10 +450,11 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     `minimize`: like `maximize` but minimizes each stat, in priority order.
     Ranked below all `maximize` stats and above the total-stat objective.
 
-    `bias`: an ordered sequence of stat names to softly favor by adding extra
-    weight to them in the total-stat objective (the i-th listed stat gets the
-    largest boost, each later one less). Unlike `maximize`, this is a soft
-    preference traded off against the other stats, not a hard ordering.
+    `bias_tiers`: an ordered list of tiers (each a list of stat names) to softly
+    favor. The i-th tier gets boost BIAS_BOOST_BASE * FALLOFF**i applied equally
+    to every stat in it, so stats sharing a tier are weighted the same and
+    earlier tiers more than later ones. A soft preference traded off against the
+    other stats, not a hard ordering (cf. `maximize`).
 
     `weights`: per-stat weights for the balanced total-stat objective; defaults
     to BALANCE_WEIGHTS (hp/st discounted to 0.1). Pass all-1.0 weights to value
@@ -532,14 +533,16 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         eval_cons = {k: ((cons[k][0], None) if k in relaxed else cons[k]) for k in STATS}
 
         # Per-stat objective weights: the base balance weights plus any --bias
-        # boost. The i-th biased stat adds BIAS_BOOST_BASE * FALLOFF**i, divided
-        # by the stat's MAX_GAIN so the boost rewards "leveling invested" rather
-        # than raw points. This pushes higher-priority biased stats further within
-        # the weighted total; the equal-share floor below guarantees each biased
-        # stat grows at all (the weighted sum alone is winner-take-all per range).
+        # boost. The i-th bias TIER adds BIAS_BOOST_BASE * FALLOFF**i (equally to
+        # every stat in the tier), divided by the stat's MAX_GAIN so the boost
+        # rewards "leveling invested" rather than raw points. This pushes higher-
+        # priority tiers further within the weighted total; the equal-share floor
+        # below guarantees each biased stat grows at all (the weighted sum alone
+        # is winner-take-all per range).
         eff_weights = dict(weights)
-        for i, stat in enumerate(bias):
-            eff_weights[stat] += BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** i) / MAX_GAIN[stat]
+        for i, tier in enumerate(bias_tiers):
+            for stat in tier:
+                eff_weights[stat] += BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** i) / MAX_GAIN[stat]
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
@@ -589,22 +592,23 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # --bias "equal-share floor then maximize": a single weighted-sum objective
         # is winner-take-all per range (e.g. assassin dominates attack and gives 0
         # mdefense, so a lower-priority biased stat never moves). To guarantee every
-        # biased stat grows -- earlier ones more -- first maximize a shared t under
-        #   value(stat_i) >= share_i * t * MAX_GAIN[stat_i],   share_i = FALLOFF**i
-        # which pulls the biased stats up together in priority proportion. Then bake
-        # the achieved gains in as floors and let the weighted total maximize within.
-        if bias:
+        # biased stat grows -- earlier tiers more -- first maximize a shared t under
+        #   value(stat) >= share_i * t * MAX_GAIN[stat],   share_i = FALLOFF**i
+        # for every stat in tier i, which pulls the biased stats up together in
+        # priority proportion (co-tier stats get the same share). Then bake the
+        # achieved gains in as floors and let the weighted total maximize within.
+        bias_shares = [(stat, BIAS_BOOST_FALLOFF ** i)
+                       for i, tier in enumerate(bias_tiers) for stat in tier]
+        if bias_shares:
             t = pulp.LpVariable(f"bias_t_{start}", lowBound=0)
-            for i, stat in enumerate(bias):
-                share = BIAS_BOOST_FALLOFF ** i
+            for stat, share in bias_shares:
                 prob += exprs[stat] >= share * MAX_GAIN[stat] * t
             prob.setObjective(-t)   # maximize t
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
             if pulp.LpStatus[prob.status] != "Optimal":
                 continue
             t_opt = t.value() or 0.0
-            for i, stat in enumerate(bias):
-                share = BIAS_BOOST_FALLOFF ** i
+            for stat, share in bias_shares:
                 prob += exprs[stat] >= int(share * MAX_GAIN[stat] * t_opt)   # bake floor
 
         prob.setObjective(base_objective)
@@ -1058,8 +1062,7 @@ def main():
     # --maximize / --minimize: hard lexicographic goals; --bias: soft weight boost.
     maximize = parse_stat_list(a.maximize)
     minimize = parse_stat_list(a.minimize)
-    bias = parse_stat_list(a.bias)
-    for flag, names in (('--maximize', maximize), ('--minimize', minimize), ('--bias', bias)):
+    for flag, names in (('--maximize', maximize), ('--minimize', minimize)):
         bad = [s for s in names if s not in STATS]
         if bad:
             fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)}")
@@ -1070,6 +1073,22 @@ def main():
         fail(f"--maximize and --minimize both target: {','.join(sorted(clash))} "
              "(cannot maximize and minimize the same stat)")
         return
+
+    # --bias: comma separates priority tiers; '=' groups stats into the SAME tier
+    # (equal weight). e.g. "attack=mattack,mdefense" -> [[attack,mattack],[mdefense]].
+    # Group keywords (all/combat) expand within their tier.
+    bias_tiers = []   # list of tiers, each a list of stats (priority high -> low)
+    bias = []         # flat list of all biased stats, in tier order
+    for seg in (p.strip() for p in a.bias.split(',') if p.strip()):
+        tier = parse_stat_list(seg.replace('=', ','))   # '=' members share the tier
+        bad = [s for s in tier if s not in STATS]
+        if bad:
+            fail(f"unknown stat(s) in --bias: {','.join(bad)}; choices: {','.join(STATS)}")
+            return
+        tier = [s for s in tier if s not in bias]   # drop stats already in an earlier tier
+        if tier:
+            bias_tiers.append(tier)
+            bias.extend(tier)
 
     # --match: parse "a=b,c=d" into a list of (stat_a, stat_b) pairs. The keyword
     # 'all' expands to the three canonical pairings.
@@ -1157,8 +1176,9 @@ def main():
                 round_label = c("nice", 'green')
             else:
                 round_label = c(GLYPH['dash'], 'dim')
-            # 1-based priority of this stat in the --bias list (dash if absent)
-            bias_label = c(str(bias.index(k) + 1), 'green') if k in bias else c(GLYPH['dash'], 'dim')
+            # 1-based bias tier (stats sharing a tier via '=' show the same number)
+            tier_no = next((i + 1 for i, t in enumerate(bias_tiers) if k in t), None)
+            bias_label = c(str(tier_no), 'green') if tier_no else c(GLYPH['dash'], 'dim')
             crows.append([
                 c(k,'cyan'),
                 c(str(lo) if lo is not None else GLYPH['dash'], 'dim' if lo is None else None),
@@ -1193,7 +1213,8 @@ def main():
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         builds = solve_ilp(cons, count=count, rounding=rounding, nice=nice, match=match,
                            minimize_vocations=a.minimize_vocations, base_st=base_st,
-                           allowed=allowed, maximize=maximize, minimize=minimize, bias=bias,
+                           allowed=allowed, maximize=maximize, minimize=minimize,
+                           bias_tiers=bias_tiers,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
                            start_pool=start_pool)
         if not builds:

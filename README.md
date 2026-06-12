@@ -175,7 +175,7 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
 | `--match PAIRS`         | Comma-separated stat pairs forced to **equal** final values, e.g. `attack=mattack,defense=mdefense`. The keyword `all` expands to `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
-| `--bias STATS`          | Comma-separated stats to **softly favor**, the first listed favored most and each later one less. Every listed stat is guaranteed to grow (an equal-share floor proportional to its priority), then the weighted total maximizes within that — e.g. `attack,mdefense` raises attack the most and mdefense some. A soft preference, traded off against the other stats; use `--maximize` for a hard guarantee. |
+| `--bias STATS`          | Comma-separated **priority tiers** of stats to softly favor — the first tier favored most, each later tier less. Every listed stat is guaranteed to grow (an equal-share floor proportional to its tier), then the weighted total maximizes within that. Group stats into one tier (equal weight) with `=`: e.g. `attack=mattack,mdefense` favors attack and mattack equally (tier 1) and mdefense too but less (tier 2). A soft preference; use `--maximize` for a hard guarantee. |
 | `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Sits above the total-stat objective. |
 | `--minimize STATS`      | Comma-separated stats to **hard-minimize**, highest priority first. Ranked below `--maximize`, above the total-stat objective. |
 | `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the maximize/minimize/total objective. |
@@ -278,6 +278,9 @@ $ ddda-build-solver.py --maximize attack,defense
 
 # Softly favor combat stats, hard-minimize HP, no built-in default floors
 $ ddda-build-solver.py --no-default --bias combat --minimize hp
+
+# Bias attack and mattack equally (tier 1), then mdefense (tier 2)
+$ ddda-build-solver.py --bias attack=mattack,mdefense
 ```
 
 ## Notes & caveats
