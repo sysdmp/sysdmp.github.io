@@ -454,7 +454,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL, basic_pool=BASIC):
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None,
               maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None,
-              verbose=False):
+              verbose=False, time_limit=5):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -504,13 +504,19 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     every stat equally.
 
     `verbose`: when True, run CBC with msg=True so it prints its own solver log.
+
+    `time_limit`: per-CBC-solve cap in seconds; None disables it (let CBC grind
+    to a proven optimum, however long that takes).
     """
     # Time-cap each CBC solve. Some flag combinations (e.g. --perfect all with a
     # continuous --bias t) leave CBC with the optimum already in hand but unable
     # to *prove* it for a long time; with a limit it returns the best incumbent,
     # which is fine here (we round/pin values anyway, and want a build, not a
     # certificate). Solves that hit the limit are still feasible builds.
-    cbc = pulp.PULP_CBC_CMD(msg=verbose, timeLimit=5)   # reused for every solve
+    cbc_kw = {'msg': verbose}
+    if time_limit is not None:
+        cbc_kw['timeLimit'] = time_limit
+    cbc = pulp.PULP_CBC_CMD(**cbc_kw)   # reused for every solve
     # A solve is usable if CBC proved optimality OR hit the time limit with a
     # feasible incumbent (status "Not Solved" but variables have values). Only a
     # genuinely infeasible/unbounded result has no usable values.
@@ -857,6 +863,10 @@ def parse_args():
     g_solver.add_argument('--verbose-cbc', action='store_true',
                           help='ilp: print the CBC solver log (msg=True);\n'
                                'ignored under --json to keep output parseable')
+    g_solver.add_argument('--posixly-correct', action='store_true',
+                          help='ilp: remove the per-solve CBC time cap, letting\n'
+                               'it grind to a proven-optimal solution however long\n'
+                               'that takes (some flag combos can run very long)')
 
     g_out = ap.add_argument_group(c('\U0001f5a5\U0000fe0f   output', 'bold'))
     g_out.add_argument('--json', action='store_true',
@@ -1362,7 +1372,8 @@ def main():
                            allowed=allowed, maximize=maximize, minimize=minimize,
                            bias_tiers=bias_tiers,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
-                           start_pool=start_pool, verbose=a.verbose_cbc and not a.json)
+                           start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
+                           time_limit=None if a.posixly_correct else 5)
         solve_time = time.perf_counter() - _t0
         if not builds:
             if a.json:
