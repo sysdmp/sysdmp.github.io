@@ -450,11 +450,12 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     `minimize`: like `maximize` but minimizes each stat, in priority order.
     Ranked below all `maximize` stats and above the total-stat objective.
 
-    `bias_tiers`: an ordered list of tiers (each a list of stat names) to softly
-    favor. The i-th tier gets boost BIAS_BOOST_BASE * FALLOFF**i applied equally
-    to every stat in it, so stats sharing a tier are weighted the same and
-    earlier tiers more than later ones. A soft preference traded off against the
-    other stats, not a hard ordering (cf. `maximize`).
+    `bias_tiers`: an ordered list of (sign, [stat names]) tiers. sign=+1 favors,
+    -1 reduces. Within each sign group the i-th tier gets magnitude
+    BIAS_BOOST_BASE * FALLOFF**i applied equally to every stat in it (stats
+    sharing a tier are weighted the same; earlier tiers stronger). Positive tiers
+    also get an equal-share growth floor; negative tiers only lower the weight. A
+    soft preference traded off against the other stats, not a hard ordering.
 
     `weights`: per-stat weights for the balanced total-stat objective; defaults
     to BALANCE_WEIGHTS (hp/st discounted to 0.1). Pass all-1.0 weights to value
@@ -533,16 +534,20 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         eval_cons = {k: ((cons[k][0], None) if k in relaxed else cons[k]) for k in STATS}
 
         # Per-stat objective weights: the base balance weights plus any --bias
-        # boost. The i-th bias TIER adds BIAS_BOOST_BASE * FALLOFF**i (equally to
-        # every stat in the tier), divided by the stat's MAX_GAIN so the boost
-        # rewards "leveling invested" rather than raw points. This pushes higher-
-        # priority tiers further within the weighted total; the equal-share floor
-        # below guarantees each biased stat grows at all (the weighted sum alone
-        # is winner-take-all per range).
+        # adjustment. Within each sign group (positive favor / negative reduce),
+        # the i-th tier gets magnitude BIAS_BOOST_BASE * FALLOFF**i, applied with
+        # the tier's sign and divided by the stat's MAX_GAIN so the adjustment
+        # rewards/penalizes "leveling invested" rather than raw points. The two
+        # groups are indexed independently. The equal-share floor below guarantees
+        # positively-biased stats grow at all (weighted sum is winner-take-all).
         eff_weights = dict(weights)
-        for i, tier in enumerate(bias_tiers):
+        pos_i = neg_i = 0
+        for sign, tier in bias_tiers:
+            i = pos_i if sign > 0 else neg_i
             for stat in tier:
-                eff_weights[stat] += BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** i) / MAX_GAIN[stat]
+                eff_weights[stat] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** i) / MAX_GAIN[stat]
+            if sign > 0: pos_i += 1
+            else: neg_i += 1
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
@@ -592,13 +597,19 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # --bias "equal-share floor then maximize": a single weighted-sum objective
         # is winner-take-all per range (e.g. assassin dominates attack and gives 0
         # mdefense, so a lower-priority biased stat never moves). To guarantee every
-        # biased stat grows -- earlier tiers more -- first maximize a shared t under
+        # POSITIVELY-biased stat grows -- earlier tiers more -- first maximize a
+        # shared t under
         #   value(stat) >= share_i * t * MAX_GAIN[stat],   share_i = FALLOFF**i
-        # for every stat in tier i, which pulls the biased stats up together in
+        # for every stat in positive tier i, which pulls them up together in
         # priority proportion (co-tier stats get the same share). Then bake the
         # achieved gains in as floors and let the weighted total maximize within.
-        bias_shares = [(stat, BIAS_BOOST_FALLOFF ** i)
-                       for i, tier in enumerate(bias_tiers) for stat in tier]
+        # Negative tiers only adjust the objective weight; they get no floor.
+        bias_shares = []
+        pos_i = 0
+        for sign, tier in bias_tiers:
+            if sign > 0:
+                bias_shares.extend((stat, BIAS_BOOST_FALLOFF ** pos_i) for stat in tier)
+                pos_i += 1
         if bias_shares:
             t = pulp.LpVariable(f"bias_t_{start}", lowBound=0)
             for stat, share in bias_shares:
@@ -740,10 +751,14 @@ def parse_args():
                          help="prefer feasible builds that use fewer distinct\n"
                               "vocations (fewer vocation changes)")
     g_goals.add_argument('--bias', type=str, default='', metavar='STATS',
-                         help="comma-separated stats to softly favor by boosting\n"
-                              "their weight in the objective; the first listed gets\n"
-                              "the largest boost, each later one less. A soft\n"
-                              "preference traded off against the other stats.\n"
+                         help="comma-separated priority tiers of stats to softly\n"
+                              "favor in the objective; the first tier gets the\n"
+                              "largest boost, each later tier less. Group stats into\n"
+                              "one tier (equal weight) with '=': attack=mattack.\n"
+                              "Prefix a tier with '-' to REDUCE its weight instead\n"
+                              "(use the = form so argparse keeps it: --bias=-mattack\n"
+                              "or put it after a comma: attack,-mattack). +/- tiers\n"
+                              "are independent; their interleaving doesn't matter.\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--maximize', type=str, default='', metavar='STATS',
                          help="comma-separated stats to hard-maximize, highest\n"
@@ -1075,20 +1090,29 @@ def main():
         return
 
     # --bias: comma separates priority tiers; '=' groups stats into the SAME tier
-    # (equal weight). e.g. "attack=mattack,mdefense" -> [[attack,mattack],[mdefense]].
+    # (equal weight). A leading '-' on a segment makes it a NEGATIVE tier (reduces
+    # the stat's weight). Positive and negative tiers form two independent ordered
+    # groups -- their interleaving doesn't matter; within each group, earlier tiers
+    # get a stronger (de)emphasis via the falloff. e.g.
+    #   "attack=mattack,mdefense,-st" -> pos [[attack,mattack],[mdefense]], neg [[st]]
     # Group keywords (all/combat) expand within their tier.
-    bias_tiers = []   # list of tiers, each a list of stats (priority high -> low)
-    bias = []         # flat list of all biased stats, in tier order
+    pos_tiers, neg_tiers = [], []   # each: list of tiers (lists of stats), priority order
+    seen_bias = set()
     for seg in (p.strip() for p in a.bias.split(',') if p.strip()):
-        tier = parse_stat_list(seg.replace('=', ','))   # '=' members share the tier
+        negative = seg.startswith('-')
+        body = seg[1:] if negative else seg
+        tier = parse_stat_list(body.replace('=', ','))   # '=' members share the tier
         bad = [s for s in tier if s not in STATS]
         if bad:
             fail(f"unknown stat(s) in --bias: {','.join(bad)}; choices: {','.join(STATS)}")
             return
-        tier = [s for s in tier if s not in bias]   # drop stats already in an earlier tier
+        tier = [s for s in tier if s not in seen_bias]   # drop already-placed stats
         if tier:
-            bias_tiers.append(tier)
-            bias.extend(tier)
+            (neg_tiers if negative else pos_tiers).append(tier)
+            seen_bias.update(tier)
+    # bias_tiers carries a sign per tier: list of (sign, [stats]); +1 favor, -1 reduce
+    bias_tiers = [(+1, t) for t in pos_tiers] + [(-1, t) for t in neg_tiers]
+    bias = [s for _, t in bias_tiers for s in t]   # flat list, for table/JSON
 
     # --match: parse "a=b,c=d" into a list of (stat_a, stat_b) pairs. The keyword
     # 'all' expands to the three canonical pairings.
@@ -1176,9 +1200,17 @@ def main():
                 round_label = c("nice", 'green')
             else:
                 round_label = c(GLYPH['dash'], 'dim')
-            # 1-based bias tier (stats sharing a tier via '=' show the same number)
-            tier_no = next((i + 1 for i, t in enumerate(bias_tiers) if k in t), None)
-            bias_label = c(str(tier_no), 'green') if tier_no else c(GLYPH['dash'], 'dim')
+            # signed bias tier: +n favors (n = 1-based positive tier), -n reduces.
+            # Co-tier stats (grouped via '=') show the same number.
+            bias_label = c(GLYPH['dash'], 'dim')
+            pos_n = neg_n = 0
+            for sign, t in bias_tiers:
+                if sign > 0: pos_n += 1
+                else: neg_n += 1
+                if k in t:
+                    n = pos_n if sign > 0 else neg_n
+                    bias_label = c(f"{'+' if sign > 0 else '-'}{n}", 'green' if sign > 0 else 'red')
+                    break
             crows.append([
                 c(k,'cyan'),
                 c(str(lo) if lo is not None else GLYPH['dash'], 'dim' if lo is None else None),
