@@ -505,7 +505,23 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
 
     `verbose`: when True, run CBC with msg=True so it prints its own solver log.
     """
-    cbc = pulp.PULP_CBC_CMD(msg=verbose)   # reused for every solve in this run
+    # Time-cap each CBC solve. Some flag combinations (e.g. --perfect all with a
+    # continuous --bias t) leave CBC with the optimum already in hand but unable
+    # to *prove* it for a long time; with a limit it returns the best incumbent,
+    # which is fine here (we round/pin values anyway, and want a build, not a
+    # certificate). Solves that hit the limit are still feasible builds.
+    cbc = pulp.PULP_CBC_CMD(msg=verbose, timeLimit=5)   # reused for every solve
+    # A solve is usable if CBC proved optimality OR hit the time limit with a
+    # feasible incumbent (status "Not Solved" but variables have values). Only a
+    # genuinely infeasible/unbounded result has no usable values.
+    def solved_ok(prob):
+        status = pulp.LpStatus[prob.status]
+        if status == "Optimal":
+            return True
+        if status == "Infeasible" or status == "Unbounded":
+            return False
+        # timed out: usable iff it produced variable values
+        return any(v.value() is not None for v in prob.variables())
     rounding = dict(rounding or {})
     nice = set(nice)
     weights = weights if weights is not None else BALANCE_WEIGHTS
@@ -623,7 +639,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         for stat, sense in lex_goals:
             prob.setObjective(-sense * exprs[stat])  # minimize -> max/min per sense
             prob.solve(cbc)
-            if pulp.LpStatus[prob.status] != "Optimal":
+            if not solved_ok(prob):
                 infeasible_start = True
                 break
             opt = round(exprs[stat].value())
@@ -653,7 +669,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                 prob += exprs[stat] >= share * MAX_GAIN[stat] * t
             prob.setObjective(-t)   # maximize t
             prob.solve(cbc)
-            if pulp.LpStatus[prob.status] != "Optimal":
+            if not solved_ok(prob):
                 continue
             t_opt = t.value() or 0.0
             for stat, share in bias_shares:
@@ -665,7 +681,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         cut_id = 0
         for _ in range(count):
             prob.solve(cbc)
-            if pulp.LpStatus[prob.status] != "Optimal":
+            if not solved_ok(prob):
                 break  # no more distinct builds for this start
             c10  = {v: int(round(x10[v].value()))  for v in basic_pool}
             c100 = {v: int(round(x100[v].value())) for v in adv_pool}
