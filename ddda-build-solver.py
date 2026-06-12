@@ -5,7 +5,7 @@
 
 Finds character builds that meet target stat requirements (HP, stamina, attack,
 defense, magick attack, magick defense) at level 200, given the game's
-vocation-based stat-growth rules mirrored from ``js/planner.js``.
+vocation-based stat-growth rules.
 
 Leveling model
 --------------
@@ -156,7 +156,7 @@ def render_table(headers, rows, aligns=None, title=None):
     out.append(line(GLYPH['bl'], GLYPH['bm'], GLYPH['br']))
     return '\n'.join(out)
 
-# --- data mirrored from js/planner.js ---
+# --- per-level stat-growth data, by vocation and tier ---
 basic = {
   'fighter': dict(init=dict(hp=450,st=540,attack=80,defense=80,mattack=60,mdefense=60),
                   to10=dict(hp=30,st=20,attack=4,defense=3,mattack=2,mdefense=2),
