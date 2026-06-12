@@ -873,9 +873,15 @@ def main():
     method = a.solver
     if method == 'auto':
         method = 'ilp' if HAVE_PULP else 'search'
+        if not HAVE_PULP and not a.json:
+            print(c("\nnote: PuLP not found \U0001f9ee❌ — using the stochastic search "
+                    "solver. Install PuLP (e.g. `pip install pulp`) for the exact ILP "
+                    "solver.", 'yellow'))
     if method == 'ilp' and not HAVE_PULP:
         if not a.json:
-            print("\nPuLP not installed; falling back to stochastic search.")
+            print(c("\nnote: PuLP not found \U0001f9ee❌ — falling back to the "
+                    "stochastic search solver. Install PuLP (e.g. `pip install pulp`) "
+                    "for the exact ILP solver.", 'yellow'))
         method = 'search'
 
     if method == 'ilp':
