@@ -585,12 +585,12 @@ def parse_args():
     g_goals.add_argument('--perfect', type=str, default='', metavar='STATS',
                          help="comma-separated stats forced to a multiple of 100\n"
                               "(max bound dropped, min kept as a floor)\n"
-                              "stats: " + ','.join(STATS))
+                              "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--neat', type=str, default='', metavar='STATS',
                          help="comma-separated stats forced to a 'neat' number:\n"
                               "666, ending in 42 or 69, all-same-digit (444),\n"
                               "or a multiple of 100\n"
-                              "stats: " + ','.join(STATS))
+                              "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--match', type=str, default='', metavar='PAIRS',
                          help="comma-separated stat pairs forced to equal values,\n"
                               "e.g. 'attack=mattack,defense=mdefense'\n"
@@ -775,12 +775,19 @@ def main():
         else:
             print("error: " + msg)
 
-    perfect = [s.strip() for s in a.perfect.split(',') if s.strip()]
-    neat = [s.strip() for s in a.neat.split(',') if s.strip()]
+    def parse_stat_list(raw):
+        """Split a comma-separated stat list; expand the keyword 'all' to every stat."""
+        items = [s.strip() for s in raw.split(',') if s.strip()]
+        if 'all' in items:
+            return list(STATS)
+        return items
+
+    perfect = parse_stat_list(a.perfect)
+    neat = parse_stat_list(a.neat)
     for flag, names in (('--perfect', perfect), ('--neat', neat)):
         bad = [s for s in names if s not in STATS]
         if bad:
-            fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)}")
+            fail(f"unknown stat(s) in {flag}: {','.join(bad)}; choices: {','.join(STATS)},all")
             return
     both = set(perfect) & set(neat)
     if both:
