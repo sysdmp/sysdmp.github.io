@@ -189,6 +189,15 @@ BASIC = list(basic.keys())
 ALL = list(basic.keys()) + list(adv.keys())
 # Advanced vocations disabled by --pawn (vocations a pawn cannot take).
 PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
+# Built-in default (min, max) per stat, applied unless --no-default is given.
+STAT_DEFAULTS = {
+    'hp':       (3500, None),
+    'st':       (3500, None),
+    'attack':   (500,  None),
+    'defense':  (300,  None),
+    'mattack':  (500,  None),
+    'mdefense': (300,  None),
+}
 
 # Character weight class sets initial stamina. The data above assumes M (540).
 WEIGHTS = {'SS': 500, 'S': 520, 'M': 540, 'L': 560, 'LL': 580}
@@ -571,26 +580,21 @@ def parse_args():
                "  # heavy character, neat HP, machine-readable output\n"
                "  ddda-build-solver.py --weight LL --neat hp --json\n")
 
-    # defaults reproduce the originally requested build
-    defaults = {
-        'hp':       (3500, None),
-        'st':       (3500, None),
-        'attack':   (500,  None),
-        'defense':  (300,  None),
-        'mattack':  (500,  None),
-        'mdefense': (300,  None),
-    }
-
     g_stats = ap.add_argument_group(c('\U0001f3af  stat targets', 'bold'),
         "Per stat: --STAT pins an exact value; --STAT-min / --STAT-max set bounds.\n"
-        "An exact value overrides that stat's min/max.")
-    for stat,(lo,hi) in defaults.items():
+        "An exact value overrides that stat's min/max. Built-in default minimums\n"
+        "apply unless overridden or --no-default is given.")
+    for stat in STATS:
+        lo, hi = STAT_DEFAULTS[stat]
         g_stats.add_argument(f'--{stat}', type=int, default=None, metavar='N',
                              help=f'exact {stat} (overrides --{stat}-min/--{stat}-max)')
-        g_stats.add_argument(f'--{stat}-min', type=int, default=lo, metavar='N',
+        g_stats.add_argument(f'--{stat}-min', type=int, default=None, metavar='N',
                              help=f'minimum {stat} (default: {lo})')
-        g_stats.add_argument(f'--{stat}-max', type=int, default=hi, metavar='N',
+        g_stats.add_argument(f'--{stat}-max', type=int, default=None, metavar='N',
                              help=f'maximum {stat} (default: {hi if hi is not None else "none"})')
+    g_stats.add_argument('--no-default', action='store_true',
+                         help='ignore the built-in default stat minimums;\n'
+                              'only constraints you pass explicitly apply')
 
     g_goals = ap.add_argument_group(c('\U00002728  ILP-only goals', 'bold'),
         "Extra constraints honored only by the exact (ILP) solver.")
@@ -773,7 +777,9 @@ def main():
         _set_color(False)
     if a.charset != 'auto':
         _set_charset(a.charset)
-    # An exact value (--<stat>) pins both bounds, overriding --<stat>-min/-max.
+    # Build per-stat (min, max) bounds. An exact value (--<stat>) pins both,
+    # overriding --<stat>-min/-max. Otherwise use any explicit bounds the user
+    # gave, falling back to the built-in default (unless --no-default).
     cons = {}
     exact = []
     for k in STATS:
@@ -781,8 +787,13 @@ def main():
         if ev is not None:
             cons[k] = (ev, ev)
             exact.append(k)
-        else:
-            cons[k] = (getattr(a, f'{k}_min'), getattr(a, f'{k}_max'))
+            continue
+        umin = getattr(a, f'{k}_min')
+        umax = getattr(a, f'{k}_max')
+        dlo, dhi = STAT_DEFAULTS[k]
+        lo = umin if umin is not None else (None if a.no_default else dlo)
+        hi = umax if umax is not None else (None if a.no_default else dhi)
+        cons[k] = (lo, hi)
     count = max(1, a.count)
 
     def fail(msg):
