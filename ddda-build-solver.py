@@ -1157,17 +1157,20 @@ def main():
                 round_label = c("nice", 'green')
             else:
                 round_label = c(GLYPH['dash'], 'dim')
+            # 1-based priority of this stat in the --bias list (dash if absent)
+            bias_label = c(str(bias.index(k) + 1), 'green') if k in bias else c(GLYPH['dash'], 'dim')
             crows.append([
                 c(k,'cyan'),
                 c(str(lo) if lo is not None else GLYPH['dash'], 'dim' if lo is None else None),
                 c(str(hi) if hi is not None else GLYPH['dash'], 'dim' if hi is None else None),
                 c('yes','green') if is_exact else c(GLYPH['dash'],'dim'),
                 round_label,
+                bias_label,
                 c(', '.join(partners),'green') if partners else c(GLYPH['dash'],'dim'),
             ])
         print(render_table(
-            ["stat", "min", "max", "exact", "round", "match"],
-            crows, aligns=['left','right','right','center','center','left'],
+            ["stat", "min", "max", "exact", "round", "bias", "match"],
+            crows, aligns=['left','right','right','center','center','center','left'],
             title="target constraints",
         ))
 
