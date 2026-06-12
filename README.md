@@ -91,7 +91,7 @@ a single `round` column showing each stat's rounding/nice mode), and for each bu
 **vocation switches** the plan requires) and the resulting **final stats** (green if a
 stat meets its requirement, red if not). The final-stats table ends with the summary
 rows **combat** (attack+mattack+defense+mdefense), **vitals** (hp+st), and **total**
-(all six), followed by the **weight class** (class, base stamina, stamina regen).
+(all six), followed by the **weight class** (class, base stamina, stamina regen, max encumbrance).
 
 ```text
 solver: ILP (exact)
@@ -129,6 +129,7 @@ found 1 build(s):
 | weight class |     M | 70-89kg                         |
 | base st      |   540 | base stamina                    |
 | st regen     |  42/s | 100% of M                       |
+| encumbrance  |  65kg | base maximum encumbrance        |
 +--------------+-------+---------------------------------+
 ```
 
@@ -201,15 +202,15 @@ balanced build from piling level-ups into them at the expense of combat stats. P
 | `--avoid VOCS`   | Comma-separated vocations to drop from consideration entirely (never leveled in any range, and excluded as a start vocation). |
 | `--pawn`         | Build for a pawn: alias for `--avoid mknight,marcher,assassin`. |
 
-| Class | Body weight     | Base stamina | Stamina regen |
-|-------|-----------------|--------------|---------------|
-| SS    | under 50 kg     | 500          | 53/s (125%)   |
-| S     | 50–69 kg        | 520          | 48/s (115%)   |
-| M     | 70–89 kg        | 540          | 42/s (100%)   |
-| L     | 90–109 kg       | 560          | 38/s (90%)    |
-| LL    | 110 kg and over | 580          | 31/s (75%)    |
+| Class | Body weight     | Base stamina | Stamina regen | Max encumbrance |
+|-------|-----------------|--------------|---------------|-----------------|
+| SS    | under 50 kg     | 500          | 53/s (125%)   | 40 kg           |
+| S     | 50–69 kg        | 520          | 48/s (115%)   | 50 kg           |
+| M     | 70–89 kg        | 540          | 42/s (100%)   | 65 kg           |
+| L     | 90–109 kg       | 560          | 38/s (90%)    | 75 kg           |
+| LL    | 110 kg and over | 580          | 31/s (75%)    | 100 kg          |
 
-Stamina regen is informational (it does not affect the solve).
+Stamina regen and max encumbrance are informational (they do not affect the solve).
 
 Unlike the [ILP-only goals](#ilp-only-goals), `--avoid` (and its `--pawn` alias) is
 honored by **both** solvers. It removes the named vocations from every range and from

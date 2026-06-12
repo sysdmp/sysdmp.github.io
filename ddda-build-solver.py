@@ -251,6 +251,8 @@ WEIGHT_STAREGEN = {
     'L':  (38, '90%'),
     'LL': (31, '75%'),
 }
+# Base maximum encumbrance (kg a character can carry) per weight class.
+WEIGHT_ENCUMBRANCE = {'SS': 40, 'S': 50, 'M': 65, 'L': 75, 'LL': 100}
 
 def growth(voc, tier):
     """Return the per-level stat-gain dict for a vocation in a given tier.
@@ -969,6 +971,8 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
                      c('base stamina', 'dim')])
         rows.append([c('st regen', 'cyan'), c(f"{regen}/s", 'bold'),
                      c(f"{regen_pct} of M", 'dim')])
+        rows.append([c('encumbrance', 'cyan'), c(f"{WEIGHT_ENCUMBRANCE[weight]}kg", 'bold'),
+                     c('base maximum encumbrance', 'dim')])
     print(render_table(
         ["stat", "value", "details"],
         rows, aligns=['left', 'right', 'left'], title="final stats",
@@ -1294,6 +1298,7 @@ def main():
                 "base_stamina": base_st,
                 "stamina_regen_per_sec": regen,
                 "stamina_regen_pct": regen_pct,
+                "base_max_encumbrance": WEIGHT_ENCUMBRANCE[a.weight],
             },
             "constraints": {k: {"min": cons[k][0], "max": cons[k][1],
                                 "exact": k in exact,
