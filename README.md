@@ -251,16 +251,30 @@ proves optimality — this can take a very long time on those degenerate cases.
 | Flag          | Meaning                                                                  |
 |---------------|--------------------------------------------------------------------------|
 | `--json`      | Emit a structured JSON document instead of tables.                       |
+| `--import FILE` | Re-render a JSON document saved from `--json` (use `-` for stdin): reproduces the human-readable tables and echoes the exact command line that produced it, without re-solving (so it works even without PuLP). All other solve options are ignored. |
 | `--no-color`  | Disable ANSI colors (also auto-disabled when output is not a terminal).  |
 | `--charset`   | Table characters: `auto` (by locale, default), `unicode`, or `ascii`.    |
 
-The JSON document includes the weight class, the full constraints (with `exact`,
-`perfect`, `half_perfect`, `decimal`, and `nice` flags per stat), the `match` pairs,
-the `pawn` flag and any `avoided_vocations`, the `bias` / `maximize` / `minimize` lists, the solver
-used, and a `builds` array. Each build reports its `start` vocation, per-range
-`levels`, `vocation_switches`, `final_stats`, a `totals` object (`combat` / `vitals` /
-`all`), and a `feasible` flag. Stat keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of
-display formatting.
+The JSON document is **self-describing and round-trippable**. It opens with a
+`command` block — `argv` (the verbatim argument list) and `line` (a shell-quoted
+command) — recording the exact invocation that produced it. It then includes the weight
+class, the full constraints (with `exact`, `perfect`, `half_perfect`, `decimal`, and
+`nice` flags per stat), the `match` pairs, the `pawn` flag and any `avoided_vocations`,
+the `bias` list plus a structured `bias_tiers` array (each `{sign, stats}`, preserving
+tier grouping and +/- emphasis), the `maximize` / `minimize` lists, the solver used, the
+`requested` / `found` counts, and a `builds` array. Each build reports its `start`
+vocation, per-range `levels`, `vocation_switches`, `final_stats`, a `totals` object
+(`combat` / `vitals` / `all`), and a `feasible` flag. Infeasible and interrupted runs
+carry the same context block (with an empty `builds` array) so they import too. Stat
+keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of display formatting.
+
+Feed any such document back with `--import` to reprint the tables exactly as the original
+run rendered them:
+
+```console
+$ ddda-build-solver.py --match attack=mattack --weight LL --json > build.json
+$ ddda-build-solver.py --import build.json      # same tables, plus the original command line
+```
 
 ## Examples
 
@@ -297,6 +311,10 @@ $ ddda-build-solver.py --bias attack=mattack,mdefense
 
 # Favor attack, de-emphasize mattack (negative bias)
 $ ddda-build-solver.py --bias=attack,-mattack
+
+# Save a result as JSON, then re-render it later (reproduces tables + command line)
+$ ddda-build-solver.py --nice all --weight LL --json > build.json
+$ ddda-build-solver.py --import build.json
 ```
 
 ## Notes & caveats

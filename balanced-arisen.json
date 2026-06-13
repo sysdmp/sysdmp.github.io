@@ -1,0 +1,163 @@
+{
+  "command": {
+    "argv": [
+      "--no-default",
+      "--bias",
+      "attack=mattack,st",
+      "--match",
+      "attack=mattack",
+      "--defense",
+      "300",
+      "--mdefense",
+      "300",
+      "--st",
+      "4000",
+      "--hp",
+      "3777",
+      "--weight",
+      "s",
+      "--json"
+    ],
+    "line": "ddda-build-solver.py --no-default --bias attack=mattack,st --match attack=mattack --defense 300 --mdefense 300 --st 4000 --hp 3777 --weight s --json"
+  },
+  "weight": {
+    "class": "S",
+    "range": "50-69kg",
+    "base_stamina": 520,
+    "stamina_regen_per_sec": 48,
+    "stamina_regen_pct": "115%",
+    "base_max_encumbrance": 50
+  },
+  "constraints": {
+    "hp": {
+      "min": 3777,
+      "max": 3777,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "st": {
+      "min": 4000,
+      "max": 4000,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "attack": {
+      "min": null,
+      "max": null,
+      "exact": false,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "defense": {
+      "min": 300,
+      "max": 300,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "mattack": {
+      "min": null,
+      "max": null,
+      "exact": false,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "mdefense": {
+      "min": 300,
+      "max": 300,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    }
+  },
+  "match": [
+    [
+      "attack",
+      "mattack"
+    ]
+  ],
+  "pawn": false,
+  "avoided_vocations": [],
+  "bias": [
+    "attack",
+    "mattack",
+    "st"
+  ],
+  "bias_tiers": [
+    {
+      "sign": 1,
+      "stats": [
+        "attack",
+        "mattack"
+      ]
+    },
+    {
+      "sign": 1,
+      "stats": [
+        "st"
+      ]
+    }
+  ],
+  "maximize": [],
+  "minimize": [],
+  "solver": "ilp",
+  "requested": 1,
+  "found": 1,
+  "solve_time_sec": 0.475,
+  "builds": [
+    {
+      "penalty": 0.0,
+      "feasible": true,
+      "start": "fighter",
+      "levels": {
+        "to10": {
+          "fighter": 1,
+          "mage": 8
+        },
+        "to100": {
+          "fighter": 1,
+          "strider": 2,
+          "warrior": 7,
+          "ranger": 12,
+          "sorcerer": 1,
+          "mknight": 1,
+          "assassin": 65,
+          "marcher": 1
+        },
+        "to200": {
+          "mage": 1,
+          "sorcerer": 98,
+          "mknight": 1
+        }
+      },
+      "vocation_switches": 12,
+      "final_stats": {
+        "hp": 3777,
+        "st": 4000,
+        "attack": 590,
+        "defense": 300,
+        "mattack": 590,
+        "mdefense": 300
+      },
+      "totals": {
+        "combat": 1780,
+        "vitals": 7777,
+        "all": 9557
+      }
+    }
+  ]
+}

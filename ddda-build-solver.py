@@ -31,7 +31,7 @@ Solvers
 Run ``ddda-build-solver.py --help`` for the full set of options.
 """
 
-import random, argparse, json, sys, os, time
+import random, argparse, json, sys, os, time, shlex
 
 try:
     import pulp
@@ -871,6 +871,13 @@ def parse_args():
     g_out = ap.add_argument_group(c('\U0001f5a5\U0000fe0f   output', 'bold'))
     g_out.add_argument('--json', action='store_true',
                        help='emit JSON instead of human-readable tables')
+    g_out.add_argument('--import', dest='import_file', metavar='FILE',
+                       help="re-render a JSON document saved earlier\n"
+                            "(from `ddda-build-solver.py --json > FILE`):\n"
+                            "reproduces the human-readable tables and prints\n"
+                            "the exact command line that produced it, without\n"
+                            "re-solving. Use '-' to read from stdin.\n"
+                            "all other solve options are ignored.")
     g_out.add_argument('--no-color', action='store_true',
                        help='disable ANSI colors (also auto-off when not a TTY)')
     g_out.add_argument('--charset', choices=['auto', 'unicode', 'ascii'], default='auto',
@@ -1174,6 +1181,102 @@ def build_to_dict(build):
         },
     }
 
+def render_imported(doc):
+    """Re-render a JSON document (from ``--json``) as human-readable output.
+
+    Reconstructs the solve context and build tuples stored in ``doc`` and reuses
+    print_constraints()/print_build() so the tables match what the original run
+    produced — no re-solving, so this works without PuLP and reproduces exactly
+    what was captured. Also echoes the exact command line that produced the file.
+    Returns a process exit code.
+    """
+    # The exact command line that produced this document (added by --json runs).
+    cmd = doc.get("command") or {}
+    line = cmd.get("line")
+    if not line and isinstance(cmd.get("argv"), list):
+        line = shlex.join(["ddda-build-solver.py"] + cmd["argv"])
+    if line:
+        print(c("command:", 'bold') + " " + line)
+        print()
+
+    # Rebuild the solve inputs from the stored context block.
+    constraints = doc.get("constraints") or {}
+    cons, exact, stat_mode = {}, [], {}
+    for k in STATS:
+        info = constraints.get(k, {})
+        cons[k] = (info.get("min"), info.get("max"))
+        if info.get("exact"):
+            exact.append(k)
+        for mode in ('perfect', 'half_perfect', 'decimal', 'nice'):
+            if info.get(mode):
+                stat_mode[k] = mode
+    rounding = {s: m for s, m in stat_mode.items() if m in DIVISOR_MODES}
+    nice = [s for s, m in stat_mode.items() if m == 'nice']
+    match = [tuple(p) for p in (doc.get("match") or [])]
+    # Prefer the structured bias_tiers (keeps grouping + sign); fall back to the
+    # flat bias list (one stat per positive tier) for older documents.
+    if doc.get("bias_tiers"):
+        bias_tiers = [(t.get("sign", 1), list(t.get("stats", []))) for t in doc["bias_tiers"]]
+    else:
+        bias_tiers = [(+1, [s]) for s in (doc.get("bias") or [])]
+    avoid = set(doc.get("avoided_vocations") or [])
+    weight = (doc.get("weight") or {}).get("class")
+
+    print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid)
+
+    solver = doc.get("solver")
+    if solver == 'ilp':
+        print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
+    elif solver == 'search':
+        print(c("\nsolver: ", 'dim') + c("search (stochastic hill-climb)", 'yellow'))
+
+    # Infeasible / interrupted documents carry no builds; report them as the
+    # original run would have, then stop.
+    if doc.get("infeasible"):
+        print(c(f"\n{GLYPH['bad']} INFEASIBLE", 'bold', 'red') +
+              ": " + doc.get("message", "no build satisfies these constraints."))
+        _print_imported_time(doc)
+        return 0
+    builds_json = doc.get("builds") or []
+    if not builds_json:
+        if doc.get("interrupted"):
+            print(c("\nsearch interrupted before any build was evaluated.", 'yellow'))
+        else:
+            print(c("\n(the document contains no builds)", 'yellow'))
+        _print_imported_time(doc)
+        return 0
+
+    count = doc.get("requested", len(builds_json))
+    print(c(f"\nfound {len(builds_json)} build(s)", 'bold')
+          + (c(f" (requested {count})", 'dim') if count and count > 1 else "") + ":")
+    for i, bd in enumerate(builds_json, 1):
+        build = _build_from_dict(bd)
+        print_build(i, build, cons, rounding, nice, weight=weight, bias_tiers=bias_tiers)
+    if count and len(builds_json) < count:
+        print(c(f"\n(only {len(builds_json)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
+    _print_imported_time(doc)
+    return 0
+
+def _print_imported_time(doc):
+    """Echo the stored solve time, if present, in the same style as a live run."""
+    t = doc.get("solve_time_sec")
+    if t is not None:
+        print(c(f"\nsolve time: {t:.3f}s", 'dim'))
+
+def _build_from_dict(bd):
+    """Inverse of build_to_dict(): rebuild a (penalty,start,c10,c100,c200,stats) tuple.
+
+    The stored level dicts are already zero-stripped (see _clean); that is fine,
+    the renderers look up counts with .get(). final_stats keys are coerced to int.
+    """
+    levels = bd.get("levels", {})
+    c10  = {k: int(v) for k, v in (levels.get("to10")  or {}).items()}
+    c100 = {k: int(v) for k, v in (levels.get("to100") or {}).items()}
+    c200 = {k: int(v) for k, v in (levels.get("to200") or {}).items()}
+    stats = {k: int(bd["final_stats"][k]) for k in STATS}
+    penalty = bd.get("penalty", 0 if bd.get("feasible") else 1)
+    return (penalty, bd.get("start"), c10, c100, c200, stats)
+
 def main():
     """CLI entry point: parse args, run the chosen solver, and print results.
 
@@ -1187,6 +1290,30 @@ def main():
         _set_color(False)
     if a.charset != 'auto':
         _set_charset(a.charset)
+
+    # --import: re-render a previously saved --json document and exit. This path
+    # ignores all the solve options (nothing is re-computed); it only replays
+    # what the file captured, including the original command line.
+    if a.import_file:
+        try:
+            if a.import_file == '-':
+                doc = json.load(sys.stdin)
+            else:
+                with open(a.import_file) as fh:
+                    doc = json.load(fh)
+        except FileNotFoundError:
+            print("error: --import file not found: " + a.import_file)
+            sys.exit(1)
+        except json.JSONDecodeError as e:
+            print(f"error: --import file is not valid JSON ({e}); "
+                  "it must be output from `ddda-build-solver.py --json`.")
+            sys.exit(1)
+        if not isinstance(doc, dict) or "builds" not in doc:
+            print("error: --import file does not look like a solver JSON document "
+                  "(no 'builds' key); produce it with `ddda-build-solver.py --json`.")
+            sys.exit(1)
+        sys.exit(render_imported(doc))
+
     # Build per-stat (min, max) bounds. An exact value (--<stat>) pins both,
     # overriding --<stat>-min/-max. Otherwise use any explicit bounds the user
     # gave, falling back to the built-in default (unless --no-default).
@@ -1345,6 +1472,38 @@ def main():
     allowed = [v for v in ALL if v not in avoid]
     start_pool = [v for v in BASIC if v not in avoid]
 
+    # Shared JSON context: the exact command line plus every solve input, so a
+    # saved --json document is self-describing and can be re-rendered (and the
+    # original invocation reproduced) via --import without re-solving. Merged
+    # into the normal, infeasible, and interrupted JSON docs alike.
+    command = {
+        "argv": sys.argv[1:],
+        "line": shlex.join([os.path.basename(sys.argv[0])] + sys.argv[1:]),
+    }
+    context = {
+        "weight": {
+            "class": a.weight,
+            "range": WEIGHT_RANGES[a.weight],
+            "base_stamina": base_st,
+            "stamina_regen_per_sec": regen,
+            "stamina_regen_pct": regen_pct,
+            "base_max_encumbrance": WEIGHT_ENCUMBRANCE[a.weight],
+        },
+        "constraints": {k: {"min": cons[k][0], "max": cons[k][1],
+                            "exact": k in exact,
+                            "perfect": stat_mode.get(k) == 'perfect',
+                            "half_perfect": stat_mode.get(k) == 'half_perfect',
+                            "decimal": stat_mode.get(k) == 'decimal',
+                            "nice": stat_mode.get(k) == 'nice'} for k in STATS},
+        "match": [[a_s, b_s] for a_s, b_s in match],
+        "pawn": a.pawn,
+        "avoided_vocations": [v for v in ALL if v in avoid],
+        "bias": bias,
+        "bias_tiers": [{"sign": sign, "stats": tier} for sign, tier in bias_tiers],
+        "maximize": maximize,
+        "minimize": minimize,
+    }
+
     if not a.json:
         print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid)
 
@@ -1378,11 +1537,15 @@ def main():
         if not builds:
             if a.json:
                 print(json.dumps({
+                    "command": command,
+                    **context,
                     "feasible": False,
                     "solver": method,
                     "infeasible": True,
                     "message": "no build satisfies these constraints (proven by the ILP solver)",
                     "solve_time_sec": round(solve_time, 3),
+                    "requested": count,
+                    "found": 0,
                     "builds": [],
                 }, indent=2))
             else:
@@ -1412,34 +1575,18 @@ def main():
                 print(c("\nsearch interrupted before any build was evaluated.", 'yellow'))
                 print(c(f"solve time: {solve_time:.3f}s", 'dim'))
             else:
-                print(json.dumps({"feasible": False, "solver": method,
+                print(json.dumps({"command": command, **context,
+                                  "feasible": False, "solver": method,
                                   "interrupted": True,
                                   "solve_time_sec": round(solve_time, 3),
+                                  "requested": count, "found": 0,
                                   "builds": []}, indent=2))
             return
 
     if a.json:
         doc = {
-            "weight": {
-                "class": a.weight,
-                "range": WEIGHT_RANGES[a.weight],
-                "base_stamina": base_st,
-                "stamina_regen_per_sec": regen,
-                "stamina_regen_pct": regen_pct,
-                "base_max_encumbrance": WEIGHT_ENCUMBRANCE[a.weight],
-            },
-            "constraints": {k: {"min": cons[k][0], "max": cons[k][1],
-                                "exact": k in exact,
-                                "perfect": stat_mode.get(k) == 'perfect',
-                                "half_perfect": stat_mode.get(k) == 'half_perfect',
-                                "decimal": stat_mode.get(k) == 'decimal',
-                                "nice": stat_mode.get(k) == 'nice'} for k in STATS},
-            "match": [[a_s, b_s] for a_s, b_s in match],
-            "pawn": a.pawn,
-            "avoided_vocations": [v for v in ALL if v in avoid],
-            "bias": bias,
-            "maximize": maximize,
-            "minimize": minimize,
+            "command": command,
+            **context,
             "solver": method,
             "requested": count,
             "found": len(builds),
