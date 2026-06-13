@@ -1,0 +1,55 @@
+DDDA BUILD SOLVER — LEVEL 200
+                   target constraints                    
+┌──────────┬──────┬──────┬───────┬───────┬──────┬─────────┐
+│ stat     │  min │  max │ exact │ round │ bias │ match   │
+├──────────┼──────┼──────┼───────┼───────┼──────┼─────────┤
+│ hp       │ 3777 │ 3777 │  yes  │   —   │  —   │ —       │
+│ st       │ 4000 │ 4000 │  yes  │   —   │  +2  │ —       │
+│ attack   │    — │    — │   —   │   —   │  +1  │ mattack │
+│ defense  │  300 │  300 │  yes  │   —   │  —   │ —       │
+│ mattack  │    — │    — │   —   │   —   │  +1  │ attack  │
+│ mdefense │  300 │  300 │  yes  │   —   │  —   │ —       │
+└──────────┴──────┴──────┴───────┴───────┴──────┴─────────┘
+
+solver: ILP (exact)
+
+found 1 build(s):
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ build 1   ✓ all requirements met
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                                                    leveling plan                                                     
+┌─────────┬────────┬───────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ range   │ levels │ vocations                                                                                         │
+├─────────┼────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ start   │      — │ fighter                                                                                           │
+│ 1→10    │      9 │ fighter ×1  mage ×8                                                                               │
+│ 10→100  │     90 │ fighter ×1  strider ×2  warrior ×7  ranger ×12  sorcerer ×1  mknight ×1  assassin ×65  marcher ×1 │
+│ 100→200 │    100 │ mage ×1  sorcerer ×98  mknight ×1                                                                 │
+└─────────┴────────┴───────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⚠  changing vocation before level 10:
+    to do it, restart the game in Hard Mode — this resets save
+    progress, but the character keeps its levels and items.
+ vocation switches: 12 (13 leveling blocks across the 3 ranges)
+                      final stats                       
+┌──────────────┬───────┬─────────────────────────────────┐
+│ stat         │ value │ details                         │
+├──────────────┼───────┼─────────────────────────────────┤
+│ hp           │  3777 │ ≥3777 ≤3777                     │
+│ st           │  4000 │ ≥4000 ≤4000 bias +2             │
+│ attack       │   590 │ bias +1                         │
+│ defense      │   300 │ ≥300 ≤300                       │
+│ mattack      │   590 │ bias +1                         │
+│ mdefense     │   300 │ ≥300 ≤300                       │
+│ ───          │   ─── │ ───                             │
+│ combat       │  1780 │ attack+mattack+defense+mdefense │
+│ vitals       │  7777 │ hp + st                         │
+│ total        │  9557 │ all stats                       │
+│ ───          │   ─── │ ───                             │
+│ weight class │     S │ 50-69kg                         │
+│ base st      │   520 │ base stamina                    │
+│ st regen     │  48/s │ 115% of M                       │
+│ encumbrance  │  50kg │ base maximum encumbrance        │
+└──────────────┴───────┴─────────────────────────────────┘
+
+solve time: 0.472s
