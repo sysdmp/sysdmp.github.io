@@ -1086,6 +1086,8 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         ["stat", "value", "details"],
         rows, aligns=['left', 'right', 'left'], title="final stats",
     ))
+    # Shareable link to the owoc.github.io planner pre-filled with this build.
+    print(" " + c("owoc planner: ", 'dim') + c(owoc_url(build), 'cyan'))
 
 def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
     """Print the banner, the 'avoiding' line, and the target-constraints table.
@@ -1160,6 +1162,33 @@ def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
         title="target constraints",
     ))
 
+OWOC_BASE = "https://owoc.github.io"
+
+def owoc_url(build):
+    """Build a shareable link to the owoc.github.io planner for this build.
+
+    The planner reads window.location.hash as a string of one-byte (2-hex-digit)
+    fields (see its js/build.js readUrl):
+      [0]      'a' patched / 'v' vanilla  -- we always emit 'a' (our growth data
+               uses the patched, non-vanilla Magick Archer to200 values)
+      [1]      start vocation: 'f' / 's' / 'm'
+      [2:20]   10->100 level counts, one byte per vocation in VOC_ORDER
+      [20:38]  100->200 level counts, same order
+      [38:44]  1->10 counts for the three basic vocations (fighter/strider/mage)
+
+    VOC_ORDER matches the planner's `vocs` array exactly. Our solver only ever
+    levels basic vocations in the 1->10 range (mirroring the game), and the
+    planner likewise has 1->10 fields only for the basics, so every build we
+    produce maps onto the planner losslessly.
+    """
+    _, start, c10, c100, c200, _ = build
+    hb = lambda n: format(int(n), '02x')
+    s = 'a' + {'fighter': 'f', 'strider': 's', 'mage': 'm'}[start]
+    s += ''.join(hb(c100.get(v, 0)) for v in VOC_ORDER)
+    s += ''.join(hb(c200.get(v, 0)) for v in VOC_ORDER)
+    s += ''.join(hb(c10.get(v, 0)) for v in ('fighter', 'strider', 'mage'))
+    return f"{OWOC_BASE}/#{s}"
+
 def build_to_dict(build):
     """Convert a build tuple into a JSON-serializable dict for ``--json`` output."""
     p,start,c10,c100,c200,s = build
@@ -1179,6 +1208,7 @@ def build_to_dict(build):
             "vitals": s['hp'] + s['st'],
             "all": sum(s[k] for k in STATS),
         },
+        "owoc_url": owoc_url(build),
     }
 
 def render_imported(doc):

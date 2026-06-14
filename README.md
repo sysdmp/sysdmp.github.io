@@ -93,6 +93,8 @@ level 10) and the resulting **final stats** (green if a
 stat meets its requirement, red if not). The final-stats table ends with the summary
 rows **combat** (attack+mattack+defense+mdefense), **vitals** (hp+st), and **total**
 (all six), followed by the **weight class** (class, base stamina, stamina regen, max encumbrance).
+Each build also prints an **owoc planner** link — a shareable URL that opens the build,
+pre-filled, in the [owoc.github.io](https://owoc.github.io) online planner.
 
 ```text
 solver: ILP (exact)
@@ -135,6 +137,7 @@ found 1 build(s):
 | st regen     |  42/s | 100% of M                       |
 | encumbrance  |  65kg | base maximum encumbrance        |
 +--------------+-------+---------------------------------+
+ owoc planner: https://owoc.github.io/#af...
 ```
 
 Pass `--json` for machine-readable output instead (see [Output control](#output-control)).
@@ -264,7 +267,8 @@ the `bias` list plus a structured `bias_tiers` array (each `{sign, stats}`, pres
 tier grouping and +/- emphasis), the `maximize` / `minimize` lists, the solver used, the
 `requested` / `found` counts, and a `builds` array. Each build reports its `start`
 vocation, per-range `levels`, `vocation_switches`, `final_stats`, a `totals` object
-(`combat` / `vitals` / `all`), and a `feasible` flag. Infeasible and interrupted runs
+(`combat` / `vitals` / `all`), a `feasible` flag, and an `owoc_url` (a shareable link
+that opens the build in the [owoc.github.io](https://owoc.github.io) planner). Infeasible and interrupted runs
 carry the same context block (with an empty `builds` array) so they import too. Stat
 keys stay lowercase (`hp`, `attack`, `mattack`, …) regardless of display formatting.
 
@@ -333,3 +337,7 @@ $ ddda-build-solver.py --import build.json
 - **`--match` is transitive** in the constraints display: `a=b,b=c` ties all three, and
   the shown min/max for each becomes the tightest (intersected) bound of the group.
 - **The growth data assumes the patched (non-vanilla) Magick Archer `to200` values.**
+  The owoc planner links use the planner's patched mode (`a` prefix) to match.
+- **The owoc planner link is lossless.** The solver only ever levels basic vocations
+  in the 1→10 range (as the game requires), which is exactly what the planner's pre-10
+  fields encode, so every build maps onto the planner without approximation.

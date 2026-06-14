@@ -117,7 +117,7 @@
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.475,
+  "solve_time_sec": 0.476,
   "builds": [
     {
       "penalty": 0.0,
@@ -157,7 +157,8 @@
         "combat": 1780,
         "vitals": 7777,
         "all": 9557
-      }
+      },
+      "owoc_url": "https://owoc.github.io/#af010200070c01014101000001000062010000010008"
     }
   ]
 }

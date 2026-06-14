@@ -51,5 +51,6 @@ found 1 build(s):
 │ st regen     │  48/s │ 115% of M                       │
 │ encumbrance  │  50kg │ base maximum encumbrance        │
 └──────────────┴───────┴─────────────────────────────────┘
+ owoc planner: https://owoc.github.io/#af010200070c01014101000001000062010000010008
 
-solve time: 0.472s
+solve time: 0.470s
