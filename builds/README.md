@@ -6,7 +6,19 @@ Saved solver results. Two flavors live here:
   These are self-describing: each embeds the exact command line that produced it
   and can be replayed.
 - **`*.txt`** — plain captures of the human-readable tables (handy for a quick look
-  without running the tool).
+  without running the tool). Generated with `--no-color --charset ascii` so they stay
+  diff-friendly and portable.
+
+Each pair shares a base name and is generated from the same command line (recorded inside
+the `.json` under `command.line`). They are regenerated whenever the tool's text or JSON
+output format changes, so they always reflect the current output. To refresh them all
+from their recorded commands, run:
+
+```console
+$ uv run builds/regen.py
+```
+
+(The only field that varies between runs is `solve_time_sec`, which is wall-clock timing.)
 
 ## Re-render a saved JSON build
 
@@ -33,4 +45,5 @@ explore a variation.
 
 ```console
 $ ddda-build-solver.py --weight LL --nice all --json > builds/heavy-nice.json
+$ ddda-build-solver.py --weight LL --nice all --no-color --charset ascii > builds/heavy-nice.txt
 ```

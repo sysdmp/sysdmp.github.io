@@ -1,0 +1,140 @@
+{
+  "command": {
+    "argv": [
+      "--no-default",
+      "--pawn",
+      "--attack",
+      "700",
+      "--mdefense",
+      "300",
+      "--mattack",
+      "300",
+      "--hp",
+      "4000",
+      "--st",
+      "4000",
+      "--weight",
+      "m",
+      "--json"
+    ],
+    "line": "ddda-build-solver.py --no-default --pawn --attack 700 --mdefense 300 --mattack 300 --hp 4000 --st 4000 --weight m --json"
+  },
+  "weight": {
+    "class": "M",
+    "range": "70-89kg",
+    "base_stamina": 540,
+    "stamina_regen_per_sec": 42,
+    "stamina_regen_pct": "100%",
+    "base_max_encumbrance": 65
+  },
+  "constraints": {
+    "hp": {
+      "min": 4000,
+      "max": 4000,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "st": {
+      "min": 4000,
+      "max": 4000,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "attack": {
+      "min": 700,
+      "max": 700,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "defense": {
+      "min": null,
+      "max": null,
+      "exact": false,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "mattack": {
+      "min": 300,
+      "max": 300,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    },
+    "mdefense": {
+      "min": 300,
+      "max": 300,
+      "exact": true,
+      "perfect": false,
+      "half_perfect": false,
+      "decimal": false,
+      "nice": false
+    }
+  },
+  "match": [],
+  "pawn": true,
+  "avoided_vocations": [
+    "mknight",
+    "assassin",
+    "marcher"
+  ],
+  "bias": [],
+  "bias_tiers": [],
+  "maximize": [],
+  "minimize": [],
+  "solver": "ilp",
+  "requested": 1,
+  "found": 1,
+  "solve_time_sec": 0.053,
+  "builds": [
+    {
+      "penalty": 0.0,
+      "feasible": true,
+      "start": "fighter",
+      "levels": {
+        "to10": {
+          "fighter": 8,
+          "strider": 1
+        },
+        "to100": {
+          "fighter": 21,
+          "strider": 2,
+          "mage": 1,
+          "warrior": 29,
+          "ranger": 37
+        },
+        "to200": {
+          "warrior": 10,
+          "ranger": 90
+        }
+      },
+      "vocation_switches": 8,
+      "final_stats": {
+        "hp": 4000,
+        "st": 4000,
+        "attack": 700,
+        "defense": 469,
+        "mattack": 300,
+        "mdefense": 300
+      },
+      "totals": {
+        "combat": 1769,
+        "vitals": 8000,
+        "all": 9769
+      },
+      "owoc_url": "https://owoc.github.io/#af1502011d25000000000000000a5a00000000080100"
+    }
+  ]
+}

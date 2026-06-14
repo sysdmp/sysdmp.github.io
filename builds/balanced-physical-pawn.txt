@@ -1,0 +1,57 @@
+DDDA BUILD SOLVER - LEVEL 200
+avoiding: mknight, assassin, marcher
+                  target constraints                   
++----------+------+------+-------+-------+------+-------+
+| stat     |  min |  max | exact | round | bias | match |
++----------+------+------+-------+-------+------+-------+
+| hp       | 4000 | 4000 |  yes  |   -   |  -   | -     |
+| st       | 4000 | 4000 |  yes  |   -   |  -   | -     |
+| attack   |  700 |  700 |  yes  |   -   |  -   | -     |
+| defense  |    - |    - |   -   |   -   |  -   | -     |
+| mattack  |  300 |  300 |  yes  |   -   |  -   | -     |
+| mdefense |  300 |  300 |  yes  |   -   |  -   | -     |
++----------+------+------+-------+-------+------+-------+
+
+solver: ILP (exact)
+
+found 1 build(s):
+
+====================================================
+ build 1   [OK] all requirements met
+====================================================
+                                 leveling plan                                 
++----------+--------+-----------------------------------------------------------+
+| range    | levels | vocations                                                 |
++----------+--------+-----------------------------------------------------------+
+| start    |      - | fighter                                                   |
+| 1->10    |      9 | fighter x8  strider x1                                    |
+| 10->100  |     90 | fighter x21  strider x2  mage x1  warrior x29  ranger x37 |
+| 100->200 |    100 | warrior x10  ranger x90                                   |
++----------+--------+-----------------------------------------------------------+
+ ⚠  changing vocation before level 10:
+    to do it, restart the game in Hard Mode — this resets save
+    progress, but the character keeps its levels and items.
+ vocation switches: 8 (9 leveling blocks across the 3 ranges)
+                      final stats                       
++--------------+-------+---------------------------------+
+| stat         | value | details                         |
++--------------+-------+---------------------------------+
+| hp           |  4000 | >=4000 <=4000                   |
+| st           |  4000 | >=4000 <=4000                   |
+| attack       |   700 | >=700 <=700                     |
+| defense      |   469 | -                               |
+| mattack      |   300 | >=300 <=300                     |
+| mdefense     |   300 | >=300 <=300                     |
+| ---          |   --- | ---                             |
+| combat       |  1769 | attack+mattack+defense+mdefense |
+| vitals       |  8000 | hp + st                         |
+| total        |  9769 | all stats                       |
+| ---          |   --- | ---                             |
+| weight class |     M | 70-89kg                         |
+| base st      |   540 | base stamina                    |
+| st regen     |  42/s | 100% of M                       |
+| encumbrance  |  65kg | base maximum encumbrance        |
++--------------+-------+---------------------------------+
+ owoc planner: https://owoc.github.io/#af1502011d25000000000000000a5a00000000080100
+
+solve time: 0.052s
