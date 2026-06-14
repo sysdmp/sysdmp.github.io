@@ -354,7 +354,8 @@ class SearchInterrupted(Exception):
         super().__init__("search interrupted")
         self.best = best
 
-def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, progress=None):
+def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, progress=None,
+           pawn=False):
     """Stochastic hill-climb for a feasible build (fallback when PuLP is absent).
 
     Performs random restarts, each starting from a random vocation distribution
@@ -371,6 +372,8 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
             to the basics still in `allowed`).
         progress: optional callback invoked with the number of restarts finished
             (1..SEARCH_RESTARTS) after each restart, for progress reporting.
+        pawn: when True, enforce the pawn rule that at least one 1->10 level is in
+            the starting vocation (see solve_ilp); the start always keeps >=1.
 
     Returns:
         The best build found as a tuple
@@ -389,7 +392,13 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
 
     for restart in range(SEARCH_RESTARTS):
         start = random.choice(starts)
-        c10 = rand_counts(basic_pool, 9)
+        # Pawn rule: keep at least one 1->10 level in the start vocation. Seed it
+        # with 1 and scatter the remaining 8 among the basics.
+        if pawn:
+            c10 = rand_counts(basic_pool, 8)
+            c10[start] += 1
+        else:
+            c10 = rand_counts(basic_pool, 9)
         c100 = rand_counts(adv_pool, 90)
         c200 = rand_counts(adv_pool, 100)
         cur_p = penalty(stats_of(start,c10,c100,c200,base_st), cons)
@@ -398,13 +407,20 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
                 which = random.random()
                 if which < 0.1:
                     nstart = random.choice(starts); nc10,nc100,nc200=c10,c100,c200
+                    if pawn and nstart != start and c10[nstart] == 0:
+                        # the new start needs a 1->10 level; move one into it from
+                        # a basic that has a surplus (prefer the old start).
+                        donors = [v for v in basic_pool if c10[v] > (1 if v == start else 0)]
+                        if not donors: continue
+                        nc10 = dict(c10); nc10[max(donors, key=lambda v: c10[v])] -= 1; nc10[nstart] += 1
                     np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
                     if np_<=cur_p:
-                        start=nstart; cur_p=np_
+                        start=nstart; c10=nc10; cur_p=np_
                     continue
                 elif which < 0.2:
                     m = neighbors_move(c10, basic_pool);
                     if m is None: continue
+                    if pawn and m[start] < 1: continue   # don't drain the start vocation
                     nc10,nc100,nc200=m,c100,c200; nstart=start
                 elif which < 0.6:
                     m = neighbors_move(c100, adv_pool)
@@ -454,7 +470,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL, basic_pool=BASIC):
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None,
               maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None,
-              verbose=False, time_limit=5):
+              verbose=False, time_limit=5, pawn=False):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -483,6 +499,11 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     range (defaults to all); the 1->10 range uses the basics within it.
     `start_pool`: optional iterable of allowed basic start vocations (defaults
     to all basics).
+
+    `pawn`: when True, model the pawn rule that the character must spend at least
+    one of its 1->10 levels in its starting vocation (a pawn cannot switch
+    vocation at level 1; the forced first level-up is in the start vocation), so
+    x10[start] >= 1. The Arisen (default) has no such restriction.
 
     `maximize`: an ordered sequence of stat names to maximize, highest priority
     first, via sequential lexicographic optimization: the first stat is
@@ -557,6 +578,12 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # block sizes: 1->10 = 9 levels, 10->100 = 90, 100->200 = 100
         for xs, _, total in tiers:
             prob += pulp.lpSum(xs.values()) == total
+
+        # Pawn rule: a pawn cannot change vocation at level 1, so its forced first
+        # level-up is taken in the starting vocation. At least one 1->10 level must
+        # therefore go to `start` (leaving up to 8 for a basic-vocation switch).
+        if pawn:
+            prob += x10[start] >= 1
 
         # each stat's final value as a linear expression
         exprs = {}
@@ -844,8 +871,10 @@ def parse_args():
                              "(not leveled in any range). vocations:\n"
                              + ', '.join(ALL))
     g_char.add_argument('--pawn', action='store_true',
-                        help="build for a pawn: alias for --avoid "
-                             + ','.join(PAWN_EXCLUDED))
+                        help="build for a pawn: excludes " + ','.join(PAWN_EXCLUDED) +
+                             "\n(like --avoid), and enforces the pawn 1->10 rule\n"
+                             "(>=1 of the nine 1->10 levels in the start vocation,\n"
+                             "since a pawn can't switch vocation at level 1)")
 
     g_solver = ap.add_argument_group(c('\U0001f9ee  solver', 'bold'))
     g_solver.add_argument('--solver', choices=['auto', 'ilp', 'search'], default='auto',
@@ -888,7 +917,8 @@ def parse_args():
 
     return ap.parse_args()
 
-def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None, show_progress=False):
+def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None, show_progress=False,
+               pawn=False):
     """Search across random restarts; return (builds, interrupted).
 
     `builds` is a list of feasible builds (penalty 0), distinct by their vocation
@@ -933,7 +963,7 @@ def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None, sh
         for i in range(n_seeds):
             random.seed(a.seed + i)
             record(search(cons, iters=a.iters, base_st=base_st, allowed=allowed,
-                          start_pool=start_pool, progress=prog))
+                          start_pool=start_pool, progress=prog, pawn=pawn))
             if show_progress:
                 done_before = (i + 1) * SEARCH_RESTARTS
             if len(found) >= count:
@@ -1568,7 +1598,7 @@ def main():
                            bias_tiers=bias_tiers,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
                            start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
-                           time_limit=None if a.posixly_correct else 5)
+                           time_limit=None if a.posixly_correct else 5, pawn=a.pawn)
         solve_time = time.perf_counter() - _t0
         if not builds:
             if a.json:
@@ -1602,7 +1632,7 @@ def main():
         _t0 = time.perf_counter()
         builds, interrupted = run_search(cons, a, count=count, base_st=base_st, allowed=allowed,
                             start_pool=start_pool,
-                            show_progress=not a.json and sys.stderr.isatty())
+                            show_progress=not a.json and sys.stderr.isatty(), pawn=a.pawn)
         solve_time = time.perf_counter() - _t0
         if interrupted and not a.json:
             print(c("\nsearch interrupted — showing the best build found so far.", 'yellow', 'bold'))

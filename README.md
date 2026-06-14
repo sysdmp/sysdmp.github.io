@@ -207,7 +207,7 @@ balanced build from piling level-ups into them at the expense of combat stats. P
 |------------------|-------------------------------------------------------------------------|
 | `--weight CLASS` | Weight class, which sets base stamina, stamina-regen rate, and max encumbrance. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
 | `--avoid VOCS`   | Comma-separated vocations to drop from consideration entirely (never leveled in any range, and excluded as a start vocation). |
-| `--pawn`         | Build for a pawn: alias for `--avoid mknight,marcher,assassin`. |
+| `--pawn`         | Build for a pawn: excludes `mknight,marcher,assassin` (as `--avoid`), **and** enforces the pawn 1→10 rule (see below). |
 
 | Class | Body weight     | Base stamina | Stamina regen | Max encumbrance |
 |-------|-----------------|--------------|---------------|-----------------|
@@ -226,6 +226,15 @@ marcher, assassin` smaller than the Arisen's), or for excluding any vocation you
 want to play. Avoiding all three basic vocations is rejected (one must remain as a
 start), and if your targets genuinely require an avoided vocation the result is
 reported as infeasible.
+
+`--pawn` additionally enforces the **pawn 1→10 rule**: a pawn cannot change vocation at
+level 1, so its forced first level-up is taken in its starting vocation. At least one of
+the nine 1→10 levels must therefore be spent in the start vocation, leaving up to eight
+for a basic-vocation switch. (Example: starting as a fighter, you cannot take all nine
+1→10 levels as a mage — you get fighter level 1, one forced fighter level-up, then eight
+mage levels still fit.) The Arisen has no such restriction and can switch vocation at
+level 1 (via the Hard Mode restart trick) for all nine pre-10 levels. Both solvers honor
+this rule.
 
 ### Solver
 
