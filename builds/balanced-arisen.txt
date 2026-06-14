@@ -52,5 +52,6 @@ found 1 build(s):
 │ encumbrance  │  50kg │ base maximum encumbrance        │
 └──────────────┴───────┴─────────────────────────────────┘
  owoc planner: https://owoc.github.io/#af010200070c01014101000001000062010000010008
+  (planner assumes weight M; this S build's st will read differently there — st here is authoritative)
 
-solve time: 0.470s
+solve time: 0.475s

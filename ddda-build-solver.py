@@ -1088,6 +1088,12 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
     ))
     # Shareable link to the owoc.github.io planner pre-filled with this build.
     print(" " + c("owoc planner: ", 'dim') + c(owoc_url(build), 'cyan'))
+    # The owoc planner has no weight-class field and always assumes M, which sets
+    # base stamina; for any other class its st total will differ slightly from
+    # ours (this tool is the source of truth for st). The other five stats match.
+    if weight is not None and weight != 'M':
+        print(c(f"  (planner assumes weight M; this {weight} build's st will read "
+                f"differently there — st here is authoritative)", 'dim', 'yellow'))
 
 def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
     """Print the banner, the 'avoiding' line, and the target-constraints table.

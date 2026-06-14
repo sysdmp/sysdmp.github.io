@@ -338,6 +338,12 @@ $ ddda-build-solver.py --import build.json
   the shown min/max for each becomes the tightest (intersected) bound of the group.
 - **The growth data assumes the patched (non-vanilla) Magick Archer `to200` values.**
   The owoc planner links use the planner's patched mode (`a` prefix) to match.
-- **The owoc planner link is lossless.** The solver only ever levels basic vocations
-  in the 1→10 range (as the game requires), which is exactly what the planner's pre-10
-  fields encode, so every build maps onto the planner without approximation.
+- **The owoc planner link encodes the leveling plan losslessly.** The solver only ever
+  levels basic vocations in the 1→10 range (as the game requires), which is exactly what
+  the planner's pre-10 fields encode, so the vocation allocation maps onto the planner
+  without approximation.
+- **The owoc planner ignores weight class (it always assumes M).** Weight class only
+  affects base stamina, so opening a non-`M` build via its planner link will show a
+  slightly different **st** total than this tool reports — the planner has no field for
+  it. This tool accounts for the weight class and is the source of truth for **st**; the
+  other five stats are identical in both. (All the example URLs above happen to be `M`.)
