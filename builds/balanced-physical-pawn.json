@@ -73,6 +73,7 @@
   },
   "match": [],
   "pawn": true,
+  "no_early_switcheroo": false,
   "avoided_vocations": [
     "mknight",
     "assassin",
@@ -85,7 +86,7 @@
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.05,
+  "solve_time_sec": 0.057,
   "builds": [
     {
       "penalty": 0.0,

@@ -80,6 +80,7 @@
     ]
   ],
   "pawn": false,
+  "no_early_switcheroo": false,
   "avoided_vocations": [],
   "bias": [
     "attack",
@@ -106,7 +107,7 @@
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.483,
+  "solve_time_sec": 0.48,
   "builds": [
     {
       "penalty": 0.0,

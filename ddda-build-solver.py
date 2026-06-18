@@ -208,14 +208,19 @@ PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
 # as {stat: divisor} in the solver; 'nice' is separate (enumerated).
 # --match tolerance for the approximate '~' operator: paired stats may differ by
 # at most this many points (the exact '=' operator forces an equal value, tol 0).
+# The hp/st (vitals) pair allows a wider gap, since those stats have large raw
+# values; combat pairs are tighter.
 MATCH_TILDE_TOLERANCE = 10
+MATCH_TILDE_TOLERANCE_VITALS = 100
 # Built-in default (min, max) per stat, applied unless --no-default is given.
+# Matches the web version's defaults: a floor on hp and the two defenses only;
+# st/attack/mattack are left unconstrained by default.
 STAT_DEFAULTS = {
-    'hp':       (3200, None),
-    'st':       (3200, None),
-    'attack':   (500,  None),
+    'hp':       (3500, None),
+    'st':       (None, None),
+    'attack':   (None, None),
     'defense':  (300,  None),
-    'mattack':  (500,  None),
+    'mattack':  (None, None),
     'mdefense': (300,  None),
 }
 # Per-stat weight used by the balanced (default) objective's total-stat sum.
@@ -358,7 +363,7 @@ class SearchInterrupted(Exception):
         self.best = best
 
 def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, progress=None,
-           pawn=False):
+           pawn=False, no_early_switch=False):
     """Stochastic hill-climb for a feasible build (fallback when PuLP is absent).
 
     Performs random restarts, each starting from a random vocation distribution
@@ -377,6 +382,8 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
             (1..SEARCH_RESTARTS) after each restart, for progress reporting.
         pawn: when True, enforce the pawn rule that at least one 1->10 level is in
             the starting vocation (see solve_ilp); the start always keeps >=1.
+        no_early_switch: when True, forbid pre-10 vocation switching entirely --
+            all nine 1->10 levels stay in the start vocation.
 
     Returns:
         The best build found as a tuple
@@ -395,9 +402,11 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
 
     for restart in range(SEARCH_RESTARTS):
         start = random.choice(starts)
-        # Pawn rule: keep at least one 1->10 level in the start vocation. Seed it
-        # with 1 and scatter the remaining 8 among the basics.
-        if pawn:
+        # Seed the 1->10 distribution. no_early_switch pins all 9 to the start;
+        # pawn keeps >=1 in the start (1 + scatter 8); otherwise scatter all 9.
+        if no_early_switch:
+            c10 = {v: 0 for v in basic_pool}; c10[start] = 9
+        elif pawn:
             c10 = rand_counts(basic_pool, 8)
             c10[start] += 1
         else:
@@ -410,7 +419,10 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
                 which = random.random()
                 if which < 0.1:
                     nstart = random.choice(starts); nc10,nc100,nc200=c10,c100,c200
-                    if pawn and nstart != start and c10[nstart] == 0:
+                    if no_early_switch and nstart != start:
+                        # all 9 pre-10 levels follow the start vocation
+                        nc10 = {v: 0 for v in basic_pool}; nc10[nstart] = 9
+                    elif pawn and nstart != start and c10[nstart] == 0:
                         # the new start needs a 1->10 level; move one into it from
                         # a basic that has a surplus (prefer the old start).
                         donors = [v for v in basic_pool if c10[v] > (1 if v == start else 0)]
@@ -421,6 +433,7 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
                         start=nstart; c10=nc10; cur_p=np_
                     continue
                 elif which < 0.2:
+                    if no_early_switch: continue   # 1->10 is fixed to the start vocation
                     m = neighbors_move(c10, basic_pool);
                     if m is None: continue
                     if pawn and m[start] < 1: continue   # don't drain the start vocation
@@ -473,7 +486,7 @@ def _stat_upper_bound(k, base, adv_pool=ALL, basic_pool=BASIC):
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None,
               maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None,
-              verbose=False, time_limit=5, pawn=False):
+              verbose=False, time_limit=5, pawn=False, no_early_switch=False):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -587,6 +600,10 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # therefore go to `start` (leaving up to 8 for a basic-vocation switch).
         if pawn:
             prob += x10[start] >= 1
+        # No early switcheroo: forbid changing vocation before level 10 entirely --
+        # all nine 1->10 levels stay in the start vocation. (Subsumes the pawn >=1.)
+        if no_early_switch:
+            prob += x10[start] == 9
 
         # each stat's final value as a linear expression
         exprs = {}
@@ -804,7 +821,7 @@ def parse_args():
         g_stats.add_argument(f'--{stat}', type=int, default=None, metavar='N',
                              help=f'exact {stat} (overrides --{stat}-min/--{stat}-max)')
         g_stats.add_argument(f'--{stat}-min', type=int, default=None, metavar='N',
-                             help=f'minimum {stat} (default: {lo})')
+                             help=f'minimum {stat} (default: {lo if lo is not None else "none"})')
         g_stats.add_argument(f'--{stat}-max', type=int, default=None, metavar='N',
                              help=f'maximum {stat} (default: {hi if hi is not None else "none"})')
     # Accept British-spelling aliases for the same stat (e.g. --defence -> defense),
@@ -839,7 +856,8 @@ def parse_args():
     g_goals.add_argument('--match', type=str, default='', metavar='PAIRS',
                          help="comma-separated stat pairs tied together:\n"
                               "'a=b' forces equal values; 'a~b' lets them differ\n"
-                              f"by up to {MATCH_TILDE_TOLERANCE} (e.g. attack~mattack -> 490 / 500).\n"
+                              f"by up to {MATCH_TILDE_TOLERANCE} (e.g. attack~mattack -> 490 / 500),\n"
+                              f"or {MATCH_TILDE_TOLERANCE_VITALS} for the hp~st pair.\n"
                               "e.g. 'attack=mattack,defense~mdefense'. 'all' expands\n"
                               "to attack=mattack,defense=mdefense,hp=st.\n"
                               "(each stat's own min/max still applies)")
@@ -884,6 +902,10 @@ def parse_args():
                              "\n(like --avoid), and enforces the pawn 1->10 rule\n"
                              "(>=1 of the nine 1->10 levels in the start vocation,\n"
                              "since a pawn can't switch vocation at level 1)")
+    g_char.add_argument('--no-early-switcheroo', action='store_true',
+                        help="forbid changing vocation before level 10: all nine\n"
+                             "1->10 levels stay in the start vocation (no Hard Mode\n"
+                             "restart trick). Honored by both solvers.")
 
     g_solver = ap.add_argument_group(c('\U0001f9ee  solver', 'bold'))
     g_solver.add_argument('--solver', choices=['auto', 'ilp', 'search'], default='auto',
@@ -927,7 +949,7 @@ def parse_args():
     return ap.parse_args()
 
 def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None, show_progress=False,
-               pawn=False):
+               pawn=False, no_early_switch=False):
     """Search across random restarts; return (builds, interrupted).
 
     `builds` is a list of feasible builds (penalty 0), distinct by their vocation
@@ -972,7 +994,8 @@ def run_search(cons, a, count=1, base_st=None, allowed=None, start_pool=None, sh
         for i in range(n_seeds):
             random.seed(a.seed + i)
             record(search(cons, iters=a.iters, base_st=base_st, allowed=allowed,
-                          start_pool=start_pool, progress=prog, pawn=pawn))
+                          start_pool=start_pool, progress=prog, pawn=pawn,
+                          no_early_switch=no_early_switch))
             if show_progress:
                 done_before = (i + 1) * SEARCH_RESTARTS
             if len(found) >= count:
@@ -1557,9 +1580,9 @@ def main():
         match_spec = 'attack=mattack,defense=mdefense,hp=st'
     for spec in (p.strip() for p in match_spec.split(',') if p.strip()):
         if spec.count('~') == 1 and '=' not in spec:
-            op, tol = '~', MATCH_TILDE_TOLERANCE
+            op, approx = '~', True
         elif spec.count('=') == 1 and '~' not in spec:
-            op, tol = '=', 0
+            op, approx = '=', False
         else:
             fail(f"bad --match pair '{spec}'; expected 'stat=stat' (equal) "
                  f"or 'stat~stat' (within {MATCH_TILDE_TOLERANCE})")
@@ -1572,6 +1595,13 @@ def main():
         if a_stat == b_stat:
             fail(f"--match pair '{spec}' matches a stat with itself")
             return
+        # '~' tolerance: the hp/st (vitals) pair gets the wider gap; otherwise 10.
+        if not approx:
+            tol = 0
+        elif {a_stat, b_stat} == {'hp', 'st'}:
+            tol = MATCH_TILDE_TOLERANCE_VITALS
+        else:
+            tol = MATCH_TILDE_TOLERANCE
         match.append((a_stat, b_stat, tol))
 
     base_st = WEIGHTS[a.weight]
@@ -1617,6 +1647,7 @@ def main():
                             "nice": k in nice} for k in STATS},
         "match": [[a_s, b_s, tol] for a_s, b_s, tol in match],
         "pawn": a.pawn,
+        "no_early_switcheroo": a.no_early_switcheroo,
         "avoided_vocations": [v for v in ALL if v in avoid],
         "bias": bias,
         "bias_tiers": [{"sign": sign, "stats": tier} for sign, tier in bias_tiers],
@@ -1652,7 +1683,8 @@ def main():
                            bias_tiers=bias_tiers,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
                            start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
-                           time_limit=None if a.posixly_correct else 5, pawn=a.pawn)
+                           time_limit=None if a.posixly_correct else 5, pawn=a.pawn,
+                           no_early_switch=a.no_early_switcheroo)
         solve_time = time.perf_counter() - _t0
         if not builds:
             if a.json:
@@ -1685,7 +1717,8 @@ def main():
         _t0 = time.perf_counter()
         builds, interrupted = run_search(cons, a, count=count, base_st=base_st, allowed=allowed,
                             start_pool=start_pool,
-                            show_progress=not a.json and sys.stderr.isatty(), pawn=a.pawn)
+                            show_progress=not a.json and sys.stderr.isatty(), pawn=a.pawn,
+                            no_early_switch=a.no_early_switcheroo)
         solve_time = time.perf_counter() - _t0
         if interrupted and not a.json:
             print(c("\nsearch interrupted — showing the best build found so far.", 'yellow', 'bold'))

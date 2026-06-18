@@ -73,8 +73,8 @@ first use. If you prefer to run with a plain `python3`, install PuLP yourself
 
 ## Quick start
 
-Run with no arguments to solve for the built-in default targets (hp ≥ 3200,
-st ≥ 3200, attack/mattack ≥ 500, defense/mdefense ≥ 300):
+Run with no arguments to solve for the built-in default targets (hp ≥ 3500,
+defense/mdefense ≥ 300; st/attack/mattack unconstrained):
 
 ```console
 $ uv run ddda-build-solver.py
@@ -156,8 +156,8 @@ For each of the six stats (`hp`, `st`, `attack`, `defense`, `mattack`, `mdefense
 | `--<stat>-min N` | Lower bound (floor).                                           |
 | `--<stat>-max N` | Upper bound (ceiling).                                         |
 
-Omit a bound to leave it unconstrained. Defaults: `hp`/`st` min 3200, `attack`/`mattack`
-min 500, `defense`/`mdefense` min 300, no maximums.
+Omit a bound to leave it unconstrained. Defaults: `hp` min 3500, `defense`/`mdefense`
+min 300; `st`/`attack`/`mattack` unconstrained, no maximums.
 
 `--no-default` ignores the built-in default minimums entirely — only the constraints
 you pass explicitly apply.
