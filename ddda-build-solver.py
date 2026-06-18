@@ -206,6 +206,9 @@ PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
 # Divisor-based "rounding" modes: each forces a stat to a multiple of its
 # divisor. Keyed by the --flag name; 'nice' is handled separately (enumerated).
 DIVISOR_MODES = {'perfect': 100, 'half_perfect': 50, 'decimal': 10}
+# --match tolerance for the approximate '~' operator: paired stats may differ by
+# at most this many points (the exact '=' operator forces an equal value, tol 0).
+MATCH_TILDE_TOLERANCE = 10
 # Built-in default (min, max) per stat, applied unless --no-default is given.
 STAT_DEFAULTS = {
     'hp':       (3200, None),
@@ -488,8 +491,9 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     kept as a floor; the value is forced into the enumerated nice set via binary
     selectors.
 
-    `match` is an iterable of (stat_a, stat_b) pairs whose final values are
-    constrained to be equal. Each stat's own min/max bounds still apply.
+    `match` is an iterable of (stat_a, stat_b, tol) triples constraining the two
+    final values: tol 0 forces them equal, tol>0 lets them differ by at most
+    `tol` points (|stat_a - stat_b| <= tol). Each stat's own min/max still apply.
 
     `minimize_vocations`: when True, the dominant objective term minimizes the
     number of distinct vocations that receive any level-ups, so feasible builds
@@ -618,9 +622,14 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                 if lo is not None: prob += expr >= lo
                 if hi is not None: prob += expr <= hi
 
-        # match mode: force paired stats to share the same final value.
-        for a_stat, b_stat in match:
-            prob += exprs[a_stat] == exprs[b_stat]
+        # match mode: tol 0 forces paired stats to share a value; tol>0 (the '~'
+        # operator) lets them differ by at most `tol` points (|a - b| <= tol).
+        for a_stat, b_stat, tol in match:
+            if tol == 0:
+                prob += exprs[a_stat] == exprs[b_stat]
+            else:
+                prob += exprs[a_stat] - exprs[b_stat] <= tol
+                prob += exprs[b_stat] - exprs[a_stat] <= tol
 
         # penalty is reported against constraints as actually enforced: rounding
         # and nice stats keep only their floor, so their dropped max isn't counted.
@@ -830,8 +839,10 @@ def parse_args():
                               "a repdigit of 3+ digits (444, 666, 7777)\n"
                               "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--match', type=str, default='', metavar='PAIRS',
-                         help="comma-separated stat pairs forced to equal values,\n"
-                              "e.g. 'attack=mattack,defense=mdefense'. 'all' expands\n"
+                         help="comma-separated stat pairs tied together:\n"
+                              "'a=b' forces equal values; 'a~b' lets them differ\n"
+                              f"by up to {MATCH_TILDE_TOLERANCE} (e.g. attack~mattack -> 490 / 500).\n"
+                              "e.g. 'attack=mattack,defense~mdefense'. 'all' expands\n"
                               "to attack=mattack,defense=mdefense,hp=st.\n"
                               "(each stat's own min/max still applies)")
     g_goals.add_argument('--minimize-vocations', action='store_true',
@@ -1129,23 +1140,32 @@ def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
     """Print the banner, the 'avoiding' line, and the target-constraints table.
 
     Args mirror the parsed inputs from main(): cons {stat:(min,max)}, the exact
-    stat list, stat_mode {stat:rounding/nice-mode}, match pairs, bias_tiers, and
-    the set of avoided vocations. Matched stats show their group-intersected
+    stat list, stat_mode {stat:rounding/nice-mode}, match triples (a, b, tol;
+    tol 0 = equal, tol>0 = within tol), bias_tiers, and the set of avoided
+    vocations. Stats linked by an exact match show their group-intersected
     bounds; the bias column shows each stat's signed tier.
     """
     print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
     if avoid:
         print(c("avoiding: ", 'bold') + c(', '.join(v for v in ALL if v in avoid), 'yellow'))
 
-    # map each stat to the partner stats it must match (both directions)
+    # map each stat to the partner stats it matches (both directions), labeled
+    # with the operator ('=' exact / '~' approximate) for the match column.
     match_partners = {k: [] for k in STATS}
-    for a_s, b_s in match:
-        match_partners[a_s].append(b_s)
-        match_partners[b_s].append(a_s)
+    # exact-only adjacency, used to intersect bounds (only '=' stats share a value)
+    exact_adj = {k: [] for k in STATS}
+    for a_s, b_s, tol in match:
+        op = '=' if tol == 0 else '~'
+        match_partners[a_s].append(op + b_s)
+        match_partners[b_s].append(op + a_s)
+        if tol == 0:
+            exact_adj[a_s].append(b_s)
+            exact_adj[b_s].append(a_s)
 
-    # group matched stats into connected components (handles chains like a=b,b=c).
-    # Matched stats share one value, so their effective bounds are the tightest
-    # floor (max of mins) and tightest ceiling (min of maxes) across the group.
+    # group EXACT-matched stats into connected components (handles chains like
+    # a=b,b=c). Such stats share one value, so their effective bounds are the
+    # tightest floor (max of mins) and ceiling (min of maxes) across the group.
+    # Approximate ('~') matches do not share a value, so they don't merge bounds.
     comp_of = {}
     for k in STATS:
         if k in comp_of:
@@ -1157,7 +1177,7 @@ def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
                 continue
             comp_of[cur] = None
             comp.append(cur)
-            stack.extend(match_partners[cur])
+            stack.extend(exact_adj[cur])
         mins = [cons[m][0] for m in comp if cons[m][0] is not None]
         maxs = [cons[m][1] for m in comp if cons[m][1] is not None]
         eff = (max(mins) if mins else None, min(maxs) if maxs else None)
@@ -1278,7 +1298,9 @@ def render_imported(doc):
                 stat_mode[k] = mode
     rounding = {s: m for s, m in stat_mode.items() if m in DIVISOR_MODES}
     nice = [s for s, m in stat_mode.items() if m == 'nice']
-    match = [tuple(p) for p in (doc.get("match") or [])]
+    # match: accept new 3-element triples [a, b, tol] and older 2-element pairs
+    # [a, b] (which were always exact, i.e. tol 0).
+    match = [(p[0], p[1], p[2] if len(p) > 2 else 0) for p in (doc.get("match") or [])]
     # Prefer the structured bias_tiers (keeps grouping + sign); fall back to the
     # flat bias list (one stat per positive tier) for older documents.
     if doc.get("bias_tiers"):
@@ -1498,17 +1520,24 @@ def main():
     bias_tiers = [(+1, t) for t in pos_tiers] + [(-1, t) for t in neg_tiers]
     bias = [s for _, t in bias_tiers for s in t]   # flat list, for table/JSON
 
-    # --match: parse "a=b,c=d" into a list of (stat_a, stat_b) pairs. The keyword
-    # 'all' expands to the three canonical pairings.
+    # --match: parse "a=b,c~d" into a list of (stat_a, stat_b, tol) triples.
+    # '=' forces equal final values (tol 0); '~' allows them to differ by up to
+    # MATCH_TILDE_TOLERANCE points. The keyword 'all' expands to the three
+    # canonical exact pairings.
     match = []
     match_spec = a.match
     if match_spec.strip() == 'all':
         match_spec = 'attack=mattack,defense=mdefense,hp=st'
     for spec in (p.strip() for p in match_spec.split(',') if p.strip()):
-        if spec.count('=') != 1:
-            fail(f"bad --match pair '{spec}'; expected form 'stat=stat'")
+        if spec.count('~') == 1 and '=' not in spec:
+            op, tol = '~', MATCH_TILDE_TOLERANCE
+        elif spec.count('=') == 1 and '~' not in spec:
+            op, tol = '=', 0
+        else:
+            fail(f"bad --match pair '{spec}'; expected 'stat=stat' (equal) "
+                 f"or 'stat~stat' (within {MATCH_TILDE_TOLERANCE})")
             return
-        a_stat, b_stat = (STAT_ALIASES.get(x.strip(), x.strip()) for x in spec.split('='))
+        a_stat, b_stat = (STAT_ALIASES.get(x.strip(), x.strip()) for x in spec.split(op))
         unknown = [x for x in (a_stat, b_stat) if x not in STATS]
         if unknown:
             fail(f"unknown stat(s) in --match: {','.join(unknown)}; choices: {','.join(STATS)}")
@@ -1516,7 +1545,7 @@ def main():
         if a_stat == b_stat:
             fail(f"--match pair '{spec}' matches a stat with itself")
             return
-        match.append((a_stat, b_stat))
+        match.append((a_stat, b_stat, tol))
 
     base_st = WEIGHTS[a.weight]
     regen, regen_pct = WEIGHT_STAREGEN[a.weight]
@@ -1561,7 +1590,7 @@ def main():
                             "half_perfect": stat_mode.get(k) == 'half_perfect',
                             "decimal": stat_mode.get(k) == 'decimal',
                             "nice": stat_mode.get(k) == 'nice'} for k in STATS},
-        "match": [[a_s, b_s] for a_s, b_s in match],
+        "match": [[a_s, b_s, tol] for a_s, b_s, tol in match],
         "pawn": a.pawn,
         "avoided_vocations": [v for v in ALL if v in avoid],
         "bias": bias,

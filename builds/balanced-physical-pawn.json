@@ -97,7 +97,7 @@
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.053,
+  "solve_time_sec": 0.049,
   "builds": [
     {
       "penalty": 0.0,

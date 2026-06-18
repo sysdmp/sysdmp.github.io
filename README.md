@@ -182,7 +182,7 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
-| `--match PAIRS`         | Comma-separated stat pairs forced to **equal** final values, e.g. `attack=mattack,defense=mdefense`. The keyword `all` expands to `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
+| `--match PAIRS`         | Comma-separated stat pairs tied together. `a=b` forces **equal** final values; `a~b` lets them differ by at most **10** points (e.g. `attack~mattack` might give 490 / 500). Mix freely: `attack=mattack,defense~mdefense`. The keyword `all` expands to the three exact pairings `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
 | `--bias STATS`          | Comma-separated **priority tiers** of stats to softly favor — the first tier favored most, each later tier less. Positively-biased stats are guaranteed to grow (an equal-share floor proportional to their tier), then the weighted total maximizes within that. Group stats into one tier (equal weight) with `=`: e.g. `attack=mattack,mdefense` favors attack and mattack equally (tier 1) and mdefense too but less (tier 2). Prefix a tier with `-` to **reduce** a stat's weight instead — pass it via the `=` form so argparse keeps the dash (`--bias=-mattack`) or after a comma (`attack,-mattack`); positive and negative tiers are independent and their order doesn't matter. A soft preference; use `--maximize`/`--minimize` for hard guarantees. |
 | `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Sits above the total-stat objective. |
 | `--minimize STATS`      | Comma-separated stats to **hard-minimize**, highest priority first. Ranked below `--maximize`, above the total-stat objective. |
@@ -271,7 +271,8 @@ The JSON document is **self-describing and round-trippable**. It opens with a
 `command` block — `argv` (the verbatim argument list) and `line` (a shell-quoted
 command) — recording the exact invocation that produced it. It then includes the weight
 class, the full constraints (with `exact`, `perfect`, `half_perfect`, `decimal`, and
-`nice` flags per stat), the `match` pairs, the `pawn` flag and any `avoided_vocations`,
+`nice` flags per stat), the `match` triples (each `[stat_a, stat_b, tolerance]`, where
+tolerance 0 means equal and 10 means the `~` within-10 mode), the `pawn` flag and any `avoided_vocations`,
 the `bias` list plus a structured `bias_tiers` array (each `{sign, stats}`, preserving
 tier grouping and +/- emphasis), the `maximize` / `minimize` lists, the solver used, the
 `requested` / `found` counts, and a `builds` array. Each build reports its `start`
@@ -300,6 +301,9 @@ $ ddda-build-solver.py --attack 550 --count 3
 
 # Keep physical and magick stats equal, fewest vocation changes
 $ ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocations
+
+# Keep attack and mattack within 10 points of each other (approximate match)
+$ ddda-build-solver.py --match attack~mattack
 
 # Plan a pawn build (no Mystic Knight / Magick Archer / Assassin)
 $ ddda-build-solver.py --pawn
@@ -343,8 +347,10 @@ $ ddda-build-solver.py --import build.json
   boundary. `--minimize-vocations`, by contrast, minimizes the count of **distinct
   vocations used at all** (a reused vocation counts once) — so it can lower the
   distinct-vocation count without lowering the switches line by the same amount.
-- **`--match` is transitive** in the constraints display: `a=b,b=c` ties all three, and
-  the shown min/max for each becomes the tightest (intersected) bound of the group.
+- **`--match` exact (`=`) links are transitive** in the constraints display: `a=b,b=c`
+  ties all three, and the shown min/max for each becomes the tightest (intersected) bound
+  of the group. Approximate (`~`) links do not merge bounds, since the stats need not
+  share a value — only stay within 10 of each other.
 - **The growth data assumes the patched (non-vanilla) Magick Archer `to200` values.**
   The owoc planner links use the planner's patched mode (`a` prefix) to match.
 - **The owoc planner link encodes the leveling plan losslessly.** The solver only ever

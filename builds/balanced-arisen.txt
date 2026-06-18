@@ -1,15 +1,15 @@
 DDDA BUILD SOLVER - LEVEL 200
-                   target constraints                    
-+----------+------+------+-------+-------+------+---------+
-| stat     |  min |  max | exact | round | bias | match   |
-+----------+------+------+-------+-------+------+---------+
-| hp       | 3777 | 3777 |  yes  |   -   |  -   | -       |
-| st       | 4000 | 4000 |  yes  |   -   |  +2  | -       |
-| attack   |    - |    - |   -   |   -   |  +1  | mattack |
-| defense  |  300 |  300 |  yes  |   -   |  -   | -       |
-| mattack  |    - |    - |   -   |   -   |  +1  | attack  |
-| mdefense |  300 |  300 |  yes  |   -   |  -   | -       |
-+----------+------+------+-------+-------+------+---------+
+                    target constraints                    
++----------+------+------+-------+-------+------+----------+
+| stat     |  min |  max | exact | round | bias | match    |
++----------+------+------+-------+-------+------+----------+
+| hp       | 3777 | 3777 |  yes  |   -   |  -   | -        |
+| st       | 4000 | 4000 |  yes  |   -   |  +2  | -        |
+| attack   |    - |    - |   -   |   -   |  +1  | =mattack |
+| defense  |  300 |  300 |  yes  |   -   |  -   | -        |
+| mattack  |    - |    - |   -   |   -   |  +1  | =attack  |
+| mdefense |  300 |  300 |  yes  |   -   |  -   | -        |
++----------+------+------+-------+-------+------+----------+
 
 solver: ILP (exact)
 
@@ -54,4 +54,4 @@ found 1 build(s):
  owoc planner: https://owoc.github.io/#af010200070c01014101000001000062010000010008
   (planner assumes weight M; this S build's st will read differently there — st here is authoritative)
 
-solve time: 0.473s
+solve time: 0.480s
