@@ -1,14 +1,19 @@
 {
   "name": "ddda-build-solver-web",
   "version": "0.0.1",
-  "description": "Browser MILP solver for Dragon's Dogma: Dark Arisen level-200 builds (GPLv3-or-later; uses glpk.js).",
-  "license": "GPL-3.0-or-later",
+  "description": "Browser MILP solver for Dragon's Dogma: Dark Arisen level-200 builds (uses HiGHS/WASM).",
+  "license": "MIT",
   "type": "module",
-  "main": "solver.js",
+  "main": "src/solver.js",
   "scripts": {
-    "test": "node test.mjs"
+    "test": "node src/test.mjs",
+    "test:py": "node src/test-python.mjs",
+    "build": "make"
   },
   "dependencies": {
-    "glpk.js": "^5.0.0"
+    "highs": "^1.14.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
   }
 }

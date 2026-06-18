@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DDDA Build Solver</title>
+<style>
+  :root {
+    --bg: #14110d;
+    --panel: #1f1a14;
+    --panel-2: #2a2319;
+    --line: #3a2f22;
+    --text: #e8ddc8;
+    --dim: #9a8c73;
+    --gold: #c8a24a;
+    --gold-bright: #e8c168;
+    --red: #b5482f;
+    --green: #6f9f4a;
+    --blue: #5a86b0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    padding: 2rem 1rem;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 1.75rem; }
+  h1 {
+    font-size: 1.9rem; margin: 0 0 .25rem; letter-spacing: .02em;
+    color: var(--gold-bright); font-weight: 700;
+  }
+  header p { margin: 0; color: var(--dim); font-size: .95rem; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1.25rem 1.4rem; margin-bottom: 1.25rem;
+  }
+  .panel h2 {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--gold); margin: 0 0 .9rem; font-weight: 600;
+  }
+  .vocs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem .75rem; }
+  .voc {
+    display: flex; align-items: center; gap: .5rem; padding: .45rem .6rem;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    cursor: pointer; user-select: none; transition: border-color .12s, opacity .12s;
+  }
+  .voc:hover { border-color: var(--gold); }
+  .voc input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
+  .voc.off { opacity: .42; }
+  .voc .tag { font-size: .68rem; color: var(--dim); margin-left: auto; }
+  .voc .tag.basic { color: var(--blue); }
+  .voc .tag.hybrid { color: var(--gold); }
+  .pawn { display: flex; align-items: center; gap: .5rem; margin-top: 1rem; cursor: pointer; font-size: .9rem; }
+  .pawn input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
+  .pawn-note { color: var(--dim); font-size: .82rem; }
+  /* stat range chooser */
+  .ranges { display: grid; grid-template-columns: auto 1fr 1fr 1fr 1fr 1.4fr auto; gap: .45rem .8rem; align-items: center; }
+  .ranges .head { color: var(--gold); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
+  .ranges .head:last-child { text-align: center; }
+  .ranges .rname { color: var(--blue); white-space: nowrap; }
+  .ranges input[type="number"], .ranges select {
+    width: 100%; min-width: 0; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 5px; padding: .4rem .5rem;
+    font: inherit; font-variant-numeric: tabular-nums;
+  }
+  .ranges select { cursor: pointer; }
+  .ranges select.bias-pos { border-color: var(--green); color: var(--green); }
+  .ranges select.bias-neg { border-color: var(--red); color: var(--red); }
+  .ranges select.match-on { border-color: var(--gold); color: var(--gold-bright); }
+  .ranges input:focus, .ranges select:focus { outline: none; border-color: var(--gold); }
+  .ranges input[type="radio"] { accent-color: var(--gold-bright); width: 16px; height: 16px; cursor: pointer; justify-self: center; }
+  .ranges input.exact { border-color: var(--green); }
+  .ranges input.div-on { border-color: var(--gold); }
+  .hint { color: var(--dim); font-size: .8rem; margin: .75rem 0 0; }
+  .hint b { color: var(--green); }
+  .warn { color: var(--gold-bright); font-size: .82rem; line-height: 1.45; margin: .75rem 0 0; }
+  .warn[hidden] { display: none; }
+  .quote { margin: 1.25rem 0 0; padding: .5rem 0 0 .9rem; border-left: 3px solid var(--line);
+    color: var(--dim); font-style: italic; font-size: .9rem; line-height: 1.5; }
+  .quote[hidden] { display: none; }
+  .quote .who { display: block; margin-top: .25rem; font-style: normal; font-size: .8rem;
+    color: var(--gold); }
+  .quote .who::before { content: "— "; }
+  .controls { display: flex; gap: .9rem; align-items: center; flex-wrap: wrap; margin-top: 1.1rem; }
+  button {
+    background: linear-gradient(180deg, var(--gold-bright), var(--gold));
+    color: #2a1d05; border: none; border-radius: 7px; padding: .7rem 1.5rem;
+    font-size: 1rem; font-weight: 700; cursor: pointer; letter-spacing: .02em;
+  }
+  button:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .55; cursor: default; filter: none; }
+  button.secondary {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    font-weight: 600;
+  }
+  button.secondary:hover { filter: none; border-color: var(--gold); }
+  .wsel { color: var(--dim); font-size: .9rem; display: flex; align-items: center; gap: .5rem; margin-top: 1rem; }
+  .wtag { color: var(--dim); font-weight: 400; }
+  .weight-info {
+    display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; margin-top: .85rem;
+    color: var(--dim); font-size: .82rem;
+  }
+  .weight-info b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .wsel select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: .5rem .6rem; font: inherit; cursor: pointer;
+  }
+  .wsel select:focus { outline: none; border-color: var(--gold); }
+  .status { color: var(--dim); font-size: .9rem; }
+  .status.err { color: var(--red); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: .5rem .65rem; text-align: left; border-bottom: 1px solid var(--line); }
+  th { color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .range { color: var(--gold); font-weight: 600; }
+  .levels .v { color: var(--text); }
+  .levels .n { color: var(--gold-bright); font-weight: 600; }
+  /* vocation name colors (view-only), mirroring the Python palette */
+  .vc-red { color: rgb(130, 37, 41); }
+  .vc-yellow { color: rgb(163, 136, 77); }
+  .vc-blue { color: rgb(65, 122, 137); }
+  .stat-name { color: var(--blue); }
+  .stat-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .target { color: var(--dim); font-size: .82rem; font-variant-numeric: tabular-nums; }
+  .target.exact { color: var(--green); }
+  tr.sum td { border-top: 2px solid var(--line); color: var(--gold); font-weight: 600; }
+  tr.sum td.num { color: var(--gold-bright); }
+  #results { display: none; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+  .share { display: flex; align-items: center; gap: .6rem; margin-top: 1.25rem; flex-wrap: wrap; }
+  .share-label { color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  .share input {
+    flex: 1; min-width: 12rem; background: var(--panel-2); color: var(--dim);
+    border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem;
+    font: inherit; font-size: .82rem;
+  }
+  .share input:focus { outline: none; border-color: var(--gold); }
+  .share button {
+    padding: .5rem 1rem; font-size: .85rem; border-radius: 6px;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    font-weight: 600; cursor: pointer;
+  }
+  .share button:hover { border-color: var(--gold); }
+  .share button.copied { border-color: var(--green); color: var(--green); }
+  .share a { flex: 1; min-width: 12rem; font-size: .82rem; overflow-wrap: anywhere; }
+  @media (max-width: 640px) { .two { grid-template-columns: 1fr; } .vocs { grid-template-columns: repeat(2, 1fr); } }
+  footer { text-align: center; color: var(--dim); font-size: .8rem; margin-top: 1.5rem; }
+  footer code { color: var(--gold); }
+  a { color: var(--gold); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>DDDA Build Solver</h1>
+    <p>Dragon's Dogma™: Dark Arisen — level-200 build optimizer (runs entirely in your browser)</p>
+  </header>
+
+  <div class="panel">
+    <h2>Vocations to allow</h2>
+    <div class="vocs" id="vocs"></div>
+    <label class="pawn"><input type="checkbox" id="pawn">
+      <span>Build for a <b>pawn</b></span>
+      <span class="pawn-note">— excludes hybrid vocations and forces ≥1 starting-class level (1→10)</span>
+    </label>
+    <label class="pawn"><input type="checkbox" id="min-voc">
+      <span>Minimize <b>vocations</b></span>
+      <span class="pawn-note">— prefer fewer distinct vocations (fewer changes); may give a less optimal build</span>
+    </label>
+    <label class="pawn"><input type="checkbox" id="no-pre10">
+      <span>Disable low level vocation <b>switcheroo</b></span>
+      <span class="pawn-note">— keep all nine 1→10 levels in the start vocation (no Hard Mode trick)</span>
+    </label>
+    <label class="wsel">Weight class
+      <select id="weight"></select>
+    </label>
+    <div class="weight-info" id="weight-info"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Stat targets</h2>
+    <div class="ranges" id="ranges">
+      <span class="head">Stat</span><span class="head">Min</span><span class="head">Max</span><span class="head">÷</span><span class="head">Bias</span><span class="head">Match</span><span class="head">Max!</span>
+    </div>
+    <p class="hint">Leave a field blank for no bound.<br>
+      Setting <b>min = max</b> requests an exact value.<br>
+      A <b>÷</b> divisor forces the stat to a multiple of it (e.g. 100) and ignores the max.<br>
+      <b>Bias</b> softly favors (+) or deprioritizes (−) a stat in the objective; it bends the
+      build but never overrides a min/max.<br>
+      <b>Match</b> ties a stat to another: <b>=</b> equal, <b>~</b> approximate (within 10;
+      hp↔st within 100).<br>
+      hp and st only pair with each other; combat stats pair with any other combat stat.<br>
+      <b>Max!</b> makes that one stat the top priority — it's maximized first, then
+      the rest of your settings are honored as long as that maximum still holds (only
+      one stat at a time; click again to clear).</p>
+  </div>
+
+  <div class="panel">
+    <div class="controls">
+      <button id="solve">Solve</button>
+      <button id="reset" type="button" class="secondary">Reset</button>
+      <span class="status" id="status">Loading solver…</span>
+    </div>
+  </div>
+
+  <div class="panel" id="results">
+    <h2 id="result-head">Best build</h2>
+    <div class="two">
+      <div>
+        <table id="plan">
+          <thead><tr><th>Range</th><th class="num">Lv</th><th>Vocations</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <p class="warn" id="pre10-warn" hidden></p>
+      </div>
+      <div>
+        <table id="stats">
+          <thead><tr><th>Stat</th><th class="num">Value</th><th>Target</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="share">
+      <span class="share-label">Share this configuration:</span>
+      <input id="share-url" type="text" readonly>
+      <button id="share-copy" type="button">Copy</button>
+    </div>
+    <div class="share">
+      <span class="share-label">Fine-tune on owoc planner:</span>
+      <a id="owoc-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+    </div>
+    <p class="warn" id="owoc-warn" hidden>⚠ The owoc planner only supports the
+      <b>M</b> weight class, so stamina will read differently there for this build.</p>
+    <blockquote class="quote" id="quote" hidden></blockquote>
+  </div>
+
+  <footer>
+    Solver: <a href="https://github.com/lovasoa/highs-js">HiGHS</a> (WASM MILP), MIT-licensed.
+    <br>Dragon's Dogma™ is a trademark of CAPCOM. This is an unofficial fan-made tool, not
+    affiliated with or endorsed by CAPCOM.
+  </footer>
+</div>
+
+<!-- Single self-contained bundle (solver + data + HiGHS WASM, inlined) built by
+     `make` from src/. The only runtime asset besides this HTML file. -->
+<script src="./index.js"></script>
+</body>
+</html>
