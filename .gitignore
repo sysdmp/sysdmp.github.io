@@ -17,6 +17,10 @@ dist/
 *.egg-info/
 .eggs/
 
+# --- node / web (web/ subproject) ---
+node_modules/
+npm-debug.log*
+
 # --- editor / OS cruft ---
 .idea/
 .vscode/
