@@ -167,16 +167,14 @@ you pass explicitly apply.
 These are honored only by the exact (`ilp`) solver; the `search` solver ignores them
 with a warning.
 
-**Rounding modes** — each forces the listed stats to a "round" value. They drop the
-stat's max bound and keep its min as a floor. A stat may be in at most one rounding
-mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
+**Rounding** — force stats to a "round" value. This drops the stat's max bound and keeps
+its min as a floor. A stat may be either divisor-rounded or `nice`, not both, and an exact
+`--<stat>` value overrides either.
 
-| Flag                  | Forces each listed stat to…                                                  |
-|-----------------------|------------------------------------------------------------------------------|
-| `--perfect STATS`     | a **multiple of 100** (e.g. 500).                                            |
-| `--half-perfect STATS`| a **multiple of 50** (e.g. 450).                                            |
-| `--decimal STATS`     | a **multiple of 10** (e.g. 430).                                            |
-| `--nice STATS`        | a **"nice" number**: a repdigit of 3+ identical digits (`444`, `666`, `7777`). |
+| Flag             | Forces each listed stat to…                                                  |
+|------------------|------------------------------------------------------------------------------|
+| `--divisor SPEC` | a **multiple of a divisor**. A bare number applies to every stat (`--divisor 100` → multiples of 100; 50 = half-perfect, 10 = round decimal). Or give per-stat `stat=N` segments: `--divisor attack=10,mattack=20`. Group keywords work (`--divisor combat=50`), and later segments override earlier ones. |
+| `--nice STATS`   | a **"nice" number**: a repdigit of 3+ identical digits (`444`, `666`, `7777`). |
 
 **Other goals:**
 
@@ -189,7 +187,7 @@ mode (they're mutually exclusive), and an exact `--<stat>` value overrides them.
 | `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the maximize/minimize/total objective. |
 | `--equal-weights`       | Value **hp/st equally** with the other stats in the balanced objective (by default they're discounted — see below). |
 
-**Group keywords** — anywhere a `STATS` list is accepted (rounding modes, `--bias`,
+**Group keywords** — anywhere a `STATS` list is accepted (`--divisor`, `--nice`, `--bias`,
 `--maximize`, `--minimize`), two shorthands expand to multiple stats:
 
 - `all` → every stat (`hp,st,attack,defense,mattack,mdefense`).
@@ -253,7 +251,7 @@ the one whose build best satisfies the objective (ties fall back to `fighter` /
 `--count > 1`. The `search` solver is a stochastic hill-climb used only as a fallback.
 
 By default each CBC solve is capped at a few seconds: some flag combinations (e.g.
-`--perfect all` with a continuous `--bias`) leave CBC holding the optimum but unable to
+`--divisor 100` with a continuous `--bias`) leave CBC holding the optimum but unable to
 *prove* it quickly, so it returns the best feasible incumbent instead of hanging. The
 build is still valid. Pass `--posixly-correct` to drop the cap and let CBC run until it
 proves optimality — this can take a very long time on those degenerate cases.
@@ -270,8 +268,8 @@ proves optimality — this can take a very long time on those degenerate cases.
 The JSON document is **self-describing and round-trippable**. It opens with a
 `command` block — `argv` (the verbatim argument list) and `line` (a shell-quoted
 command) — recording the exact invocation that produced it. It then includes the weight
-class, the full constraints (with `exact`, `perfect`, `half_perfect`, `decimal`, and
-`nice` flags per stat), the `match` triples (each `[stat_a, stat_b, tolerance]`, where
+class, the full constraints (with `exact`, a `divisor` integer (or null), and a `nice`
+flag per stat), the `match` triples (each `[stat_a, stat_b, tolerance]`, where
 tolerance 0 means equal and 10 means the `~` within-10 mode), the `pawn` flag and any `avoided_vocations`,
 the `bias` list plus a structured `bias_tiers` array (each `{sign, stats}`, preserving
 tier grouping and +/- emphasis), the `maximize` / `minimize` lists, the solver used, the
@@ -316,6 +314,12 @@ $ ddda-build-solver.py --weight LL --nice hp --json
 
 # Force every final stat to a "nice" number
 $ ddda-build-solver.py --nice all
+
+# Round every stat to a multiple of 100
+$ ddda-build-solver.py --divisor 100
+
+# Per-stat divisors: attack a multiple of 10, mattack a multiple of 20
+$ ddda-build-solver.py --divisor attack=10,mattack=20
 
 # Hard-maximize attack first, then defense (priority order)
 $ ddda-build-solver.py --maximize attack,defense

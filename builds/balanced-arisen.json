@@ -33,54 +33,42 @@
       "min": 3777,
       "max": 3777,
       "exact": true,
-      "perfect": false,
-      "half_perfect": false,
-      "decimal": false,
+      "divisor": null,
       "nice": false
     },
     "st": {
       "min": 4000,
       "max": 4000,
       "exact": true,
-      "perfect": false,
-      "half_perfect": false,
-      "decimal": false,
+      "divisor": null,
       "nice": false
     },
     "attack": {
       "min": null,
       "max": null,
       "exact": false,
-      "perfect": false,
-      "half_perfect": false,
-      "decimal": false,
+      "divisor": null,
       "nice": false
     },
     "defense": {
       "min": 300,
       "max": 300,
       "exact": true,
-      "perfect": false,
-      "half_perfect": false,
-      "decimal": false,
+      "divisor": null,
       "nice": false
     },
     "mattack": {
       "min": null,
       "max": null,
       "exact": false,
-      "perfect": false,
-      "half_perfect": false,
-      "decimal": false,
+      "divisor": null,
       "nice": false
     },
     "mdefense": {
       "min": 300,
       "max": 300,
       "exact": true,
-      "perfect": false,
-      "half_perfect": false,
-      "decimal": false,
+      "divisor": null,
       "nice": false
     }
   },

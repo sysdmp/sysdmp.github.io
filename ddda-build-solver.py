@@ -203,9 +203,9 @@ MAX_GAIN = {k: max(d[t][k] for d in VOCS.values()
             for k in STATS}
 # Advanced vocations disabled by --pawn (vocations a pawn cannot take).
 PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
-# Divisor-based "rounding" modes: each forces a stat to a multiple of its
-# divisor. Keyed by the --flag name; 'nice' is handled separately (enumerated).
-DIVISOR_MODES = {'perfect': 100, 'half_perfect': 50, 'decimal': 10}
+# --divisor rounds a stat to a multiple of the given integer (e.g. 100 -> a
+# "perfect" multiple of 100, 50 -> half-perfect, 10 -> a round decimal). Handled
+# as {stat: divisor} in the solver; 'nice' is separate (enumerated).
 # --match tolerance for the approximate '~' operator: paired stats may differ by
 # at most this many points (the exact '=' operator forces an equal value, tol 0).
 MATCH_TILDE_TOLERANCE = 10
@@ -481,10 +481,9 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     objective the solver optimizes; within a start, distinct solutions are
     enumerated with no-good cuts.
 
-    `rounding` maps a stat name to a divisor mode ('perfect' -> multiple of 100,
-    'half_perfect' -> 50, 'decimal' -> 10; see DIVISOR_MODES). The stat's value
-    is forced to divisor*k via a fresh integer k, its max bound is dropped, and
-    its min (if any) is kept as a floor.
+    `rounding` maps a stat name to an integer divisor (e.g. 100, 50, 10). The
+    stat's value is forced to divisor*k via a fresh integer k, its max bound is
+    dropped, and its min (if any) is kept as a floor.
 
     `nice` is a set of stat names that must each be a "nice" number (see
     ``is_nice``). Like the rounding modes, the max bound is dropped and the min
@@ -600,7 +599,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
             lo, hi = cons[k]
             if k in rounding:
                 # divisor mode: value == divisor*mult, min kept as floor, max dropped
-                divisor = DIVISOR_MODES[rounding[k]]
+                divisor = rounding[k]
                 mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
                 prob += expr == divisor * mult
                 if lo is not None: prob += expr >= lo
@@ -784,9 +783,8 @@ def parse_args():
                       'bold', 'cyan') +
                     "  Find a build whose final stats meet your targets. Each stat takes an\n"
                     "  optional min and/or max (omit one to leave it unbounded), or an exact\n"
-                    "  value. The ILP solver adds extra goals: rounding (perfect / half-\n"
-                    "  perfect / decimal / nice), match, bias, maximize / minimize, and\n"
-                    "  minimize-vocations.",
+                    "  value. The ILP solver adds extra goals: divisor rounding, nice\n"
+                    "  numbers, match, bias, maximize / minimize, and minimize-vocations.",
         epilog=c("\nexamples:\n", 'bold', 'yellow') +
                "  # minimum HP and stamina, everything else default\n"
                "  ddda-build-solver.py --hp-min 3600 --st-min 4000\n\n"
@@ -824,16 +822,16 @@ def parse_args():
 
     g_goals = ap.add_argument_group(c('\U00002728  ILP-only goals', 'bold'),
         "Extra constraints honored only by the exact (ILP) solver.")
-    g_goals.add_argument('--perfect', type=str, default='', metavar='STATS',
-                         help="comma-separated stats forced to a multiple of 100\n"
-                              "(max bound dropped, min kept as a floor)\n"
-                              "stats: " + ','.join(STATS) + " (or 'all')")
-    g_goals.add_argument('--half-perfect', type=str, default='', metavar='STATS',
-                         help="like --perfect but a multiple of 50 (e.g. 450)\n"
-                              "stats: " + ','.join(STATS) + " (or 'all')")
-    g_goals.add_argument('--decimal', type=str, default='', metavar='STATS',
-                         help="like --perfect but a multiple of 10 (e.g. 430)\n"
-                              "stats: " + ','.join(STATS) + " (or 'all')")
+    g_goals.add_argument('--divisor', type=str, default='', metavar='SPEC',
+                         help="force stats to a multiple of a divisor\n"
+                              "(max bound dropped, min kept as a floor).\n"
+                              "a bare number applies to all stats:\n"
+                              "  --divisor 100  -> every stat a multiple of 100\n"
+                              "  (50 = half-perfect, 10 = round decimal)\n"
+                              "or per-stat 'stat=N' segments, comma-separated:\n"
+                              "  --divisor attack=10,mattack=20\n"
+                              "groups work too (all=,combat=); later segments win.\n"
+                              "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--nice', type=str, default='', metavar='STATS',
                          help="comma-separated stats forced to a 'nice' number:\n"
                               "a repdigit of 3+ digits (444, 666, 7777)\n"
@@ -1033,9 +1031,9 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         idx: 1-based build number for the header.
         build: tuple (penalty, start, c10, c100, c200, stats).
         cons: constraints dict, used to color/annotate each final stat.
-        rounding: {stat: divisor-mode-name} map (see DIVISOR_MODES); these stats'
-            max bound is ignored when judging requirements, and annotated (e.g.
-            "x100") in the details column.
+        rounding: {stat: int divisor} map; these stats' max bound is ignored
+            when judging requirements, and annotated (e.g. "x100") in the
+            details column.
         nice: iterable of stats in "nice" mode, whose max bound is likewise
             ignored (the value is annotated as "nice" in the details column).
         weight: optional weight-class name; when given, its class / range /
@@ -1095,7 +1093,7 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         bound = []
         if lo is not None: bound.append(f"{GLYPH['ge']}{lo}")
         if hi_eff is not None: bound.append(f"{GLYPH['le']}{hi_eff}")
-        if k in rounding: bound.append(f"{GLYPH['mul']}{DIVISOR_MODES[rounding[k]]}")
+        if k in rounding: bound.append(f"{GLYPH['mul']}{rounding[k]}")
         if k in nice: bound.append("nice")
         if k in bias_note: bound.append(bias_note[k])
         rows.append([c(k,'cyan'), val, c(' '.join(bound) or GLYPH['dash'], 'dim')])
@@ -1136,14 +1134,14 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         print(c(f"  (planner assumes weight M; this {weight} build's st will read "
                 f"differently there — st here is authoritative)", 'dim', 'yellow'))
 
-def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
+def print_constraints(cons, exact, rounding, nice, match, bias_tiers, avoid):
     """Print the banner, the 'avoiding' line, and the target-constraints table.
 
     Args mirror the parsed inputs from main(): cons {stat:(min,max)}, the exact
-    stat list, stat_mode {stat:rounding/nice-mode}, match triples (a, b, tol;
-    tol 0 = equal, tol>0 = within tol), bias_tiers, and the set of avoided
-    vocations. Stats linked by an exact match show their group-intersected
-    bounds; the bias column shows each stat's signed tier.
+    stat list, rounding {stat:int divisor}, nice (iterable of stat names), match
+    triples (a, b, tol; tol 0 = equal, tol>0 = within tol), bias_tiers, and the
+    set of avoided vocations. Stats linked by an exact match show their
+    group-intersected bounds; the bias column shows each stat's signed tier.
     """
     print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
     if avoid:
@@ -1189,10 +1187,9 @@ def print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid):
     for k in STATS:
         lo, hi = comp_of[k]   # effective (group-intersected) bounds
         # single label for the stat's rounding/nice mode (mutually exclusive)
-        mode = stat_mode.get(k)
-        if mode in DIVISOR_MODES:
-            round_label = c(f"{GLYPH['mul']}{DIVISOR_MODES[mode]}", 'green')
-        elif mode == 'nice':
+        if k in rounding:
+            round_label = c(f"{GLYPH['mul']}{rounding[k]}", 'green')
+        elif k in nice:
             round_label = c("nice", 'green')
         else:
             round_label = c(GLYPH['dash'], 'dim')
@@ -1287,17 +1284,22 @@ def render_imported(doc):
 
     # Rebuild the solve inputs from the stored context block.
     constraints = doc.get("constraints") or {}
-    cons, exact, stat_mode = {}, [], {}
+    # legacy divisor-mode booleans (pre --divisor) -> integer divisor
+    LEGACY_DIV = {'perfect': 100, 'half_perfect': 50, 'decimal': 10}
+    cons, exact, rounding, nice = {}, [], {}, []
     for k in STATS:
         info = constraints.get(k, {})
         cons[k] = (info.get("min"), info.get("max"))
         if info.get("exact"):
             exact.append(k)
-        for mode in ('perfect', 'half_perfect', 'decimal', 'nice'):
-            if info.get(mode):
-                stat_mode[k] = mode
-    rounding = {s: m for s, m in stat_mode.items() if m in DIVISOR_MODES}
-    nice = [s for s, m in stat_mode.items() if m == 'nice']
+        if info.get("divisor"):                 # current format
+            rounding[k] = info["divisor"]
+        else:                                   # fall back to legacy booleans
+            for mode, d in LEGACY_DIV.items():
+                if info.get(mode):
+                    rounding[k] = d
+        if info.get("nice"):
+            nice.append(k)
     # match: accept new 3-element triples [a, b, tol] and older 2-element pairs
     # [a, b] (which were always exact, i.e. tol 0).
     match = [(p[0], p[1], p[2] if len(p) > 2 else 0) for p in (doc.get("match") or [])]
@@ -1310,7 +1312,7 @@ def render_imported(doc):
     avoid = set(doc.get("avoided_vocations") or [])
     weight = (doc.get("weight") or {}).get("class")
 
-    print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid)
+    print_constraints(cons, exact, rounding, nice, match, bias_tiers, avoid)
 
     solver = doc.get("solver")
     if solver == 'ilp':
@@ -1463,27 +1465,52 @@ def main():
         """Parse a comma-separated vocation list into a set (no group keywords)."""
         return {x.strip() for x in raw.split(',') if x.strip()}
 
-    # Rounding/nice modes: map each flag to its mode name and build a single
-    # {stat: mode} dict, erroring if a stat lands in more than one mode.
-    mode_flags = [('--perfect', a.perfect, 'perfect'),
-                  ('--half-perfect', a.half_perfect, 'half_perfect'),
-                  ('--decimal', a.decimal, 'decimal'),
-                  ('--nice', a.nice, 'nice')]
-    stat_mode = {}   # {stat: mode-name}
-    for flag, raw, mode in mode_flags:
-        names = parse_stat_list(raw)
-        if bad_stats(flag, names, allow_groups=True):
-            return
-        for s in names:
-            if s in exact:
-                continue   # an exact value overrides any rounding/nice mode
-            if s in stat_mode and stat_mode[s] != mode:
-                fail(f"stat '{s}' has conflicting modes ({stat_mode[s]} and {mode})")
+    # --divisor: round stats to a multiple of an integer. A bare number applies
+    # to every stat (--divisor 100); otherwise each comma-separated 'stat=N'
+    # segment sets one stat's divisor (groups all/combat expand). Later segments
+    # override earlier ones. Builds a {stat: divisor} map (exact stats skipped).
+    rounding = {}   # {stat: int divisor}
+    div_raw = a.divisor.strip()
+    if div_raw:
+        if div_raw.isdigit():
+            d = int(div_raw)
+            if d < 1:
+                fail(f"--divisor value must be a positive integer, got '{div_raw}'")
                 return
-            stat_mode[s] = mode
-    # split into the divisor-based rounding map and the nice set
-    rounding = {s: m for s, m in stat_mode.items() if m in DIVISOR_MODES}
-    nice = [s for s, m in stat_mode.items() if m == 'nice']
+            for s in STATS:
+                if s not in exact:
+                    rounding[s] = d
+        else:
+            for seg in (p.strip() for p in div_raw.split(',') if p.strip()):
+                if seg.count('=') != 1:
+                    fail(f"bad --divisor segment '{seg}'; expected 'stat=N' "
+                         "or a bare number like '100'")
+                    return
+                names_raw, dstr = seg.split('=')
+                if not dstr.strip().isdigit() or int(dstr) < 1:
+                    fail(f"--divisor for '{names_raw.strip()}' must be a positive "
+                         f"integer, got '{dstr.strip()}'")
+                    return
+                names = parse_stat_list(names_raw)
+                if bad_stats('--divisor', names, allow_groups=True):
+                    return
+                for s in names:
+                    if s not in exact:   # an exact value overrides rounding
+                        rounding[s] = int(dstr)
+
+    # --nice: stats forced to a "nice" number (enumerated repdigit). A stat can't
+    # be both nice and divisor-rounded; an exact value overrides both.
+    nice = []
+    nice_names = parse_stat_list(a.nice)
+    if bad_stats('--nice', nice_names, allow_groups=True):
+        return
+    for s in nice_names:
+        if s in exact:
+            continue
+        if s in rounding:
+            fail(f"stat '{s}' has conflicting modes (--divisor and --nice)")
+            return
+        nice.append(s)
 
     # --maximize / --minimize: hard lexicographic goals; --bias: soft weight boost.
     maximize = parse_stat_list(a.maximize)
@@ -1586,10 +1613,8 @@ def main():
         },
         "constraints": {k: {"min": cons[k][0], "max": cons[k][1],
                             "exact": k in exact,
-                            "perfect": stat_mode.get(k) == 'perfect',
-                            "half_perfect": stat_mode.get(k) == 'half_perfect',
-                            "decimal": stat_mode.get(k) == 'decimal',
-                            "nice": stat_mode.get(k) == 'nice'} for k in STATS},
+                            "divisor": rounding.get(k),
+                            "nice": k in nice} for k in STATS},
         "match": [[a_s, b_s, tol] for a_s, b_s, tol in match],
         "pawn": a.pawn,
         "avoided_vocations": [v for v in ALL if v in avoid],
@@ -1600,7 +1625,7 @@ def main():
     }
 
     if not a.json:
-        print_constraints(cons, exact, stat_mode, match, bias_tiers, avoid)
+        print_constraints(cons, exact, rounding, nice, match, bias_tiers, avoid)
 
     method = a.solver
     if method == 'auto':
@@ -1650,8 +1675,7 @@ def main():
             return
     else:
         if not a.json:
-            ilp_only = [('--perfect', a.perfect), ('--half-perfect', a.half_perfect),
-                        ('--decimal', a.decimal), ('--nice', a.nice), ('--match', a.match),
+            ilp_only = [('--divisor', a.divisor), ('--nice', a.nice), ('--match', a.match),
                         ('--minimize-vocations', a.minimize_vocations),
                         ('--bias', a.bias), ('--maximize', a.maximize), ('--minimize', a.minimize)]
             for flag, val in ilp_only:
