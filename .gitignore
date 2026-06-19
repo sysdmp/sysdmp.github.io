@@ -17,7 +17,7 @@ dist/
 *.egg-info/
 .eggs/
 
-# --- node / web (web/ subproject) ---
+# --- node (web app at repo root) ---
 node_modules/
 npm-debug.log*
 

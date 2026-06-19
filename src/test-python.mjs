@@ -27,8 +27,9 @@ import { STATS, BALANCE_WEIGHTS } from './data.js';
 import { solveMaxTotal } from './solver.js';
 
 const require = createRequire(import.meta.url);
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const PY = join(ROOT, 'ddda-build-solver.py');
+// src/ sits at the repo root now; the Python prototype lives in pycli/.
+const PYDIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'pycli');
+const PY = join(PYDIR, 'ddda-build-solver.py');
 
 const highsLoader = require('highs');
 const fs = require('node:fs');
@@ -67,7 +68,7 @@ function runPython(opts) {
   let out;
   try {
     out = execFileSync('uv', ['run', PY, ...pyArgs(opts), '--json'],
-      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      { cwd: PYDIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   } catch (e) {
     return { feasible: false, stats: null, error: e.message };
   }

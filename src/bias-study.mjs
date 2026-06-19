@@ -18,8 +18,9 @@ import { STATS, BALANCE_WEIGHTS } from './data.js';
 import { solveMaxTotal } from './solver.js';
 
 const require = createRequire(import.meta.url);
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const PY = join(ROOT, 'ddda-build-solver.py');
+// src/ sits at the repo root now; the Python prototype lives in pycli/.
+const PYDIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'pycli');
+const PY = join(PYDIR, 'ddda-build-solver.py');
 const highsLoader = require('highs');
 const fs = require('node:fs');
 const highs = await highsLoader({ wasmBinary: fs.readFileSync(require.resolve('highs/runtime')) });
@@ -29,7 +30,7 @@ const wScore = (s) => STATS.reduce((a, k) => a + BALANCE_WEIGHTS[k] * s[k], 0);
 // Python: --bias with the given comma string (e.g. "attack" or "attack=mattack").
 function pyBias(biasStr, extra = []) {
   const out = execFileSync('uv', ['run', PY, '--no-default', '--bias', biasStr, ...extra, '--json'],
-    { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    { cwd: PYDIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   return JSON.parse(out).builds[0].final_stats;
 }
 // Web: bias map { stat: n }.
