@@ -6,6 +6,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DDDA Build Solver</title>
 <style>
+  /* Default theme (Dragon's Dogma parchment-on-dark). Every color is a CSS
+     variable, so a theme is just a different set of these values — see the
+     [data-theme] blocks below; the dropdown sets data-theme on <html>. */
   :root {
     --bg: #14110d;
     --panel: #1f1a14;
@@ -19,6 +22,32 @@
     --green: #6f9f4a;
     --blue: #5a86b0;
   }
+  html[data-theme="dark"] {
+    --bg: #121316;
+    --panel: #1b1d21;
+    --panel-2: #24272c;
+    --line: #383c43;
+    --text: #e6e8ec;
+    --dim: #9aa0a8;
+    --gold: #d8b65a;
+    --gold-bright: #f0cd72;
+    --red: #d2603f;
+    --green: #7bb152;
+    --blue: #6fa8d0;
+  }
+  html[data-theme="light"] {
+    --bg: #f4f1ea;
+    --panel: #ffffff;
+    --panel-2: #ece7dc;
+    --line: #d6cfbf;
+    --text: #2c2a24;
+    --dim: #6f6857;
+    --gold: #9a7a23;
+    --gold-bright: #7a5f15;
+    --red: #a83a2c;
+    --green: #4f7a32;
+    --blue: #3a6f8c;
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
@@ -26,7 +55,16 @@
     padding: 2rem 1rem;
   }
   .wrap { max-width: 880px; margin: 0 auto; }
-  header { text-align: center; margin-bottom: 1.75rem; }
+  header { text-align: center; margin-bottom: 1.75rem; position: relative; }
+  .theme-pick {
+    position: absolute; top: 0; right: 0; display: flex; align-items: center; gap: .4rem;
+    color: var(--dim); font-size: .8rem;
+  }
+  .theme-pick select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: .35rem .5rem; font: inherit; font-size: .8rem; cursor: pointer;
+  }
+  .theme-pick select:focus { outline: none; border-color: var(--gold); }
   h1 {
     font-size: 1.9rem; margin: 0 0 .25rem; letter-spacing: .02em;
     color: var(--gold-bright); font-weight: 700;
@@ -127,6 +165,7 @@
   .target.exact { color: var(--green); }
   tr.sum td { border-top: 2px solid var(--line); color: var(--gold); font-weight: 600; }
   tr.sum td.num { color: var(--gold-bright); }
+  tr.sum td[title] { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
   #results { display: none; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
   .share { display: flex; align-items: center; gap: .6rem; margin-top: 1.25rem; flex-wrap: wrap; }
@@ -148,12 +187,21 @@
   @media (max-width: 640px) { .two { grid-template-columns: 1fr; } .vocs { grid-template-columns: repeat(2, 1fr); } }
   footer { text-align: center; color: var(--dim); font-size: .8rem; margin-top: 1.5rem; }
   footer code { color: var(--gold); }
+  footer .tip { color: var(--gold); display: inline-block; margin-bottom: .5rem; }
   a { color: var(--gold); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
+    <label class="theme-pick">Theme
+      <select id="theme">
+        <option value="auto">Auto (OS)</option>
+        <option value="default">Default</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </label>
     <h1>DDDA Build Solver</h1>
     <p>Dragon's Dogma™: Dark Arisen — level 200 build optimizer</p>
   </header>
@@ -237,7 +285,10 @@
   </div>
 
   <footer>
-    Solver: <a href="https://github.com/lovasoa/highs-js">HiGHS</a>.
+    <span class="tip">💡 Tip: this whole page is self-contained — save it
+      (right-click → Save As, or ⌘S) and it works completely offline, loading no
+      external resources.</span>
+    <br>Solver: <a href="https://github.com/lovasoa/highs-js">HiGHS</a>.
     <br>Dragon's Dogma™ is a trademark of CAPCOM Co., Ltd. This is an unofficial fan-made tool, not
     affiliated with or endorsed by CAPCOM Co., Ltd.
   </footer>

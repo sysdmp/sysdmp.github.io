@@ -58,6 +58,37 @@ function colorVoc(v) {
 const $ = (id) => document.getElementById(id);
 const status = $('status');
 
+// --- theme ---------------------------------------------------------------
+// The CSS exposes three palettes via :root / html[data-theme]. The picker
+// chooses one, persisted in localStorage. "auto" (the default) follows the OS
+// light/dark preference and live-updates when the OS flips.
+const THEME_KEY = 'ddda-theme';
+const osDark = matchMedia('(prefers-color-scheme: dark)');
+
+function applyTheme(choice) {
+  // resolve "auto" to a concrete palette; "default" maps to :root (no attr)
+  const resolved = choice === 'auto' ? (osDark.matches ? 'dark' : 'light') : choice;
+  if (resolved === 'default') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', resolved);
+}
+
+function initTheme() {
+  let choice = 'auto';
+  try { choice = localStorage.getItem(THEME_KEY) || 'auto'; } catch {}
+  const sel = $('theme');
+  if (sel) sel.value = choice;
+  applyTheme(choice);
+  if (sel) sel.addEventListener('change', () => {
+    applyTheme(sel.value);
+    try { localStorage.setItem(THEME_KEY, sel.value); } catch {}
+  });
+  // when on "auto", track OS theme changes live
+  osDark.addEventListener('change', () => {
+    if (($('theme')?.value ?? 'auto') === 'auto') applyTheme('auto');
+  });
+}
+initTheme();
+
 // --- build the vocation checkboxes ---
 const vocsEl = $('vocs');
 for (const v of ALL) {
@@ -476,6 +507,12 @@ function renderStats(stats, total, bounds) {
       `<td class="num stat-val">${stats[k]}</td>` +
       `<td class="target${t.exact ? ' exact' : ''}">${t.text}</td></tr>`);
   }
+  // Combat summary: the four combat stats only (attack/defense/mattack/mdefense),
+  // excluding hp and st. The formula is a tooltip on the label.
+  const combat = COMBAT.reduce((a, k) => a + stats[k], 0);
+  body.insertAdjacentHTML('beforeend',
+    `<tr class="sum"><td title="attack + defense + mattack + mdefense">Combat</td>` +
+    `<td class="num">${combat}</td><td></td></tr>`);
   body.insertAdjacentHTML('beforeend',
     `<tr class="sum"><td>Total</td><td class="num">${total}</td><td></td></tr>`);
 }
