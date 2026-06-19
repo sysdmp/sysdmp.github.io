@@ -161,6 +161,18 @@ for (const w of WEIGHT_CLASSES) {
   weightEl.appendChild(opt);
 }
 
+// Weight-class help icon: the same facts the build summary shows, but for every
+// class at once (one line per class). Only base stamina affects the solve; the
+// rest are informational.
+$('weight-help').title =
+  'Weight class affects base stamina (the only stat the solver uses) plus a few ' +
+  'informational facts. By body weight:\n' +
+  WEIGHT_CLASSES.map((w) => {
+    const sg = WEIGHT_STAREGEN[w];
+    return `${w} (${WEIGHT_RANGE[w]}): base stamina ${WEIGHT_BASE_ST[w]}, ` +
+           `regen ${sg.rate}/s (${sg.pct}), max encumbrance ${WEIGHT_ENCUMBRANCE[w]}kg`;
+  }).join('\n');
+
 function updateWeightInfo() {
   const w = weightEl.value;
   const sg = WEIGHT_STAREGEN[w];

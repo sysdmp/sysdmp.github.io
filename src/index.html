@@ -204,7 +204,7 @@
     width: max-content; max-width: min(78vw, 22rem);
     background: var(--panel-2); color: var(--text); border: 1px solid var(--gold);
     border-radius: 7px; padding: .55rem .7rem; font-size: .8rem; line-height: 1.4;
-    font-style: normal; font-weight: 400; text-align: left; white-space: normal;
+    font-style: normal; font-weight: 400; text-align: left; white-space: pre-line;
     /* column headers are uppercased + letter-spaced; reset so the help reads normally */
     text-transform: none; letter-spacing: normal;
     box-shadow: 0 6px 20px rgba(0,0,0,.45); cursor: auto;
@@ -260,7 +260,7 @@
       <input type="checkbox" id="min-voc"><span>Minimize <b>vocations</b></span><i class="info" title="Prefer fewer distinct vocations (fewer changes); likely to find a less optimal build.">ⓘ</i></label>
     <label class="pawn">
       <input type="checkbox" id="no-pre10"><span>Disable low level vocation <b>switcheroo</b></span><i class="info" title="Keep all nine 1→10 levels in the start vocation (no Hard Mode trick).">ⓘ</i></label>
-    <label class="wsel"><select id="weight"></select> Weight class</label>
+    <label class="wsel"><select id="weight"></select> Weight class<i class="info" id="weight-help">ⓘ</i></label>
   </div>
 
   <div class="panel">
