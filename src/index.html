@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DDDA Build Solver</title>
+<title>Strength in numbers, Arisen!</title>
 <style>
   /* Default theme (Dragon's Dogma parchment-on-dark). Every color is a CSS
      variable, so a theme is just a different set of these values — see the
@@ -67,7 +67,7 @@
   .theme-pick select:focus { outline: none; border-color: var(--gold); }
   h1 {
     font-size: 1.9rem; margin: 0 0 .25rem; letter-spacing: .02em;
-    color: var(--gold-bright); font-weight: 700;
+    color: var(--gold-bright); font-weight: 700; cursor: help;
   }
   header p { margin: 0; color: var(--dim); font-size: .95rem; }
   .panel {
@@ -116,7 +116,8 @@
   .warn { color: var(--gold-bright); font-size: .82rem; line-height: 1.45; margin: .75rem 0 0; }
   .warn[hidden] { display: none; }
   .quote { margin: 1.25rem 0 0; padding: .5rem 0 0 .9rem; border-left: 3px solid var(--line);
-    color: var(--dim); font-style: italic; font-size: .9rem; line-height: 1.5; }
+    color: var(--dim); font-style: italic; font-size: .9rem; line-height: 1.5;
+    white-space: pre-line; }
   .quote[hidden] { display: none; }
   .quote .who { display: block; margin-top: .25rem; font-style: normal; font-size: .8rem;
     color: var(--gold); }
@@ -209,7 +210,7 @@
         <option value="light">Light</option>
       </select>
     </label>
-    <h1>DDDA Build Solver</h1>
+    <h1 title="Strength in numbers, Arisen!">DDDA Build Solver</h1>
     <p>Dragon's Dogma™: Dark Arisen — level 200 build optimizer</p>
   </header>
 

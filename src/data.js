@@ -195,4 +195,8 @@ export const QUOTES = [
   { text: `"They're masterworks all, you can't go wrong."`, who: `Caxton` },
   { text: `"Wolves hunt in packs."`, who: `Pawn` },
   { text: `"It bears the head of a cock!"`, who: `Pawn` },
+  { text: `"Should we jump, Arisen? It may shorten our path.. or our lives."`, who: `Pawn` },
+  { text: `"Human bones that move on their own!"`, who: `Pawn` },
+  { text: `"I love Grigori. He really stole my heart."`, who: `Some Reddit user` },
+  { text: `"IT'S A HUMAN!!\nBLOODY HUMAN!!\nSTUPID HUMAN!!"`, who: `Goblin` },
 ];
