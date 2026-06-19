@@ -630,7 +630,9 @@ $('share-copy').addEventListener('click', async () => {
 // Mirrors the fresh, no-params page state: all vocations on, weight M, pawn off,
 // default min floors pre-filled, everything else cleared, biases neutral.
 function resetSelections() {
-  for (const cb of vocsEl.querySelectorAll('input[type="checkbox"]')) {
+  // Only the vocation checkboxes (.voc); the option toggles also live in vocsEl
+  // now but are reset separately below.
+  for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]')) {
     cb.checked = true;
     cb.closest('.voc').classList.remove('off');
   }
