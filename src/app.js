@@ -90,9 +90,18 @@ function initTheme() {
 initTheme();
 
 // --- build the vocation checkboxes ---
+// Two columns for a narrower (mobile-friendly) layout: basics on the left,
+// the rest on the right (advanced first, then hybrids — that's ALL order minus
+// the basics). Each column is its own container under #vocs.
 const vocsEl = $('vocs');
+const leftCol = document.createElement('div');
+const rightCol = document.createElement('div');
+leftCol.className = rightCol.className = 'voc-col';
+vocsEl.append(leftCol, rightCol);
+
 for (const v of ALL) {
-  const cls = BASIC.includes(v) ? 'basic' : HYBRID.has(v) ? 'hybrid' : 'advanced';
+  const isBasic = BASIC.includes(v);
+  const cls = isBasic ? 'basic' : HYBRID.has(v) ? 'hybrid' : 'advanced';
   const label = document.createElement('label');
   label.className = 'voc';
   if (HYBRID.has(v)) label.dataset.hybrid = '1';
@@ -102,8 +111,16 @@ for (const v of ALL) {
     `<span class="tag ${cls}">${cls}</span>`;
   const cb = label.querySelector('input');
   cb.addEventListener('change', () => label.classList.toggle('off', !cb.checked));
-  vocsEl.appendChild(label);
+  (isBasic ? leftCol : rightCol).appendChild(label);
 }
+
+// Tuck the option checkboxes and the weight-class selector into the left column,
+// below the basic vocations (so they sit to the left of the hybrid vocations in
+// the right column). They're authored in the template after #vocs; move the DOM
+// nodes, keeping their ids/listeners intact.
+for (const id of ['pawn', 'min-voc', 'no-pre10']) leftCol.appendChild($(id).closest('.pawn'));
+leftCol.appendChild($('weight').closest('.wsel'));
+leftCol.appendChild($('weight-info'));
 
 // Boolean option checkboxes, declared once: { DOM id, solver opt key, URL param }.
 // Everything that iterates the toggles — solve, encode, apply, reset — uses this
@@ -139,7 +156,7 @@ const weightInfoEl = $('weight-info');
 for (const w of WEIGHT_CLASSES) {
   const opt = document.createElement('option');
   opt.value = w;
-  opt.textContent = `${w} (${WEIGHT_RANGE[w]}) — base st ${WEIGHT_BASE_ST[w]}`;
+  opt.textContent = `${w} (${WEIGHT_RANGE[w]})`;
   if (w === DEFAULT_WEIGHT) opt.selected = true;
   weightEl.appendChild(opt);
 }
@@ -210,18 +227,7 @@ for (const k of STATS) {
   }
   matchSel.addEventListener('change', updateMatchCue);
 
-  // maximize radio: exclusive across all stats (shared name); clicking the
-  // already-checked one clears it (so "maximize nothing" is reachable).
-  const maxRadio = document.createElement('input');
-  maxRadio.type = 'radio';
-  maxRadio.name = 'maximize';
-  maxRadio.value = k;
-  maxRadio.dataset.stat = k;
-  maxRadio.dataset.kind = 'maximize';
-  maxRadio.title = `Maximize ${STAT_LABEL[k]} (ignores all other settings)`;
-  maxRadio.addEventListener('click', onMaximizeClick);
-
-  rangesEl.append(name, mk('min'), mk('max'), mk('divisor'), bias, matchSel, maxRadio);
+  rangesEl.append(name, mk('min'), mk('max'), mk('divisor'), bias, matchSel);
 }
 
 // Visual cues: a stat's min/max go green when equal and set (exact-value
@@ -246,18 +252,19 @@ function updateBiasCue(e) {
   sel.classList.toggle('bias-neg', v < 0);
 }
 
-// A radio can't normally be unchecked by clicking it; track the last-checked one
-// so a second click on the same radio clears the whole group (maximize nothing).
-let lastMaximize = null;
-function onMaximizeClick(e) {
-  const r = e.target;
-  if (lastMaximize === r.value) {
-    r.checked = false;
-    lastMaximize = null;
-  } else {
-    lastMaximize = r.value;
-  }
+// Maximize dropdown: one stat to maximize as the top priority, or "— none —".
+// Populated with every stat; the template provides the leading none option.
+const maximizeEl = $('maximize');
+for (const k of STATS) {
+  const opt = document.createElement('option');
+  opt.value = k;
+  opt.textContent = STAT_LABEL[k];
+  maximizeEl.appendChild(opt);
 }
+function updateMaximizeCue() {
+  maximizeEl.classList.toggle('on', maximizeEl.value !== '');
+}
+maximizeEl.addEventListener('change', updateMaximizeCue);
 
 // Re-sync every visual cue + dependent control to the current field values.
 // Used after bulk changes (URL restore, reset).
@@ -269,6 +276,7 @@ function refreshAllCues() {
   }
   updatePawnUI();
   updateWeightInfo();
+  updateMaximizeCue();
 }
 
 // Color a match select green once a partner is chosen.
@@ -288,11 +296,9 @@ const biasSelect = (k) =>
 const matchSelect = (k) =>
   rangesEl.querySelector(`select[data-stat="${k}"][data-kind="match"]`);
 
-// The stat currently selected to maximize, or null. (Radios share a name, so at
-// most one is checked.)
+// The stat currently selected to maximize, or null ("— none —").
 function collectMaximize() {
-  const r = rangesEl.querySelector('input[data-kind="maximize"]:checked');
-  return r ? r.value : null;
+  return maximizeEl.value || null;
 }
 
 // Collect the per-stat bias map (omitting neutral 0).
@@ -425,13 +431,9 @@ function applySelections(params) {
     const m = params.get(`${k}_match`);
     msel.value = m != null && [...msel.options].some((o) => o.value === m) ? m : '';
   }
-  // Maximize radio (exclusive). Set the matching radio and sync the click tracker.
+  // Maximize dropdown.
   const maxStat = params.get('max');
-  lastMaximize = STATS.includes(maxStat) ? maxStat : null;
-  for (const k of STATS) {
-    const r = rangesEl.querySelector(`input[data-kind="maximize"][value="${k}"]`);
-    r.checked = k === lastMaximize;
-  }
+  maximizeEl.value = STATS.includes(maxStat) ? maxStat : '';
   refreshAllCues();
   return true;
 }
@@ -641,8 +643,7 @@ function resetSelections() {
     biasSelect(k).value = '0';
     matchSelect(k).value = '';
   }
-  for (const r of rangesEl.querySelectorAll('input[data-kind="maximize"]')) r.checked = false;
-  lastMaximize = null;
+  maximizeEl.value = '';
   // refresh dependent UI and clear the shared-state bits
   refreshAllCues();
   $('results').style.display = 'none';

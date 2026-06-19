@@ -78,7 +78,8 @@
     font-size: .8rem; text-transform: uppercase; letter-spacing: .12em;
     color: var(--gold); margin: 0 0 .9rem; font-weight: 600;
   }
-  .vocs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem .75rem; }
+  .vocs { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem .75rem; align-items: start; }
+  .voc-col { display: flex; flex-direction: column; gap: .5rem; }
   .voc {
     display: flex; align-items: center; gap: .5rem; padding: .45rem .6rem;
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
@@ -90,11 +91,12 @@
   .voc .tag { font-size: .68rem; color: var(--dim); margin-left: auto; }
   .voc .tag.basic { color: var(--blue); }
   .voc .tag.hybrid { color: var(--gold); }
-  .pawn { display: flex; align-items: center; gap: .5rem; margin-top: 1rem; cursor: pointer; font-size: .9rem; }
+  .pawn { display: flex; align-items: center; gap: .5rem; cursor: help; font-size: .9rem; }
   .pawn input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
-  .pawn-note { color: var(--dim); font-size: .82rem; }
+  /* extra space above the first toggle, separating it from the basic vocations */
+  .voc-col .pawn:first-of-type { margin-top: .5rem; }
   /* stat range chooser */
-  .ranges { display: grid; grid-template-columns: auto 1fr 1fr 1fr 1fr 1.4fr auto; gap: .45rem .8rem; align-items: center; }
+  .ranges { display: grid; grid-template-columns: auto 1fr 1fr 1fr 1fr 1.4fr; gap: .45rem .8rem; align-items: center; }
   .ranges .head { color: var(--gold); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
   .ranges .head:last-child { text-align: center; }
   .ranges .rname { color: var(--blue); white-space: nowrap; }
@@ -108,7 +110,14 @@
   .ranges select.bias-neg { border-color: var(--red); color: var(--red); }
   .ranges select.match-on { border-color: var(--gold); color: var(--gold-bright); }
   .ranges input:focus, .ranges select:focus { outline: none; border-color: var(--gold); }
-  .ranges input[type="radio"] { accent-color: var(--gold-bright); width: 16px; height: 16px; cursor: pointer; justify-self: center; }
+  .maximize-pick { display: flex; align-items: center; gap: .5rem; margin-bottom: .9rem;
+    color: var(--dim); font-size: .85rem; }
+  .maximize-pick select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: .4rem .55rem; font: inherit; cursor: pointer;
+  }
+  .maximize-pick select:focus { outline: none; border-color: var(--gold); }
+  .maximize-pick select.on { border-color: var(--gold); color: var(--gold-bright); }
   .ranges input.exact { border-color: var(--green); }
   .ranges input.div-on { border-color: var(--gold); }
   .hint { color: var(--dim); font-size: .8rem; margin: .75rem 0 0; }
@@ -142,10 +151,11 @@
     font-weight: 600;
   }
   button.secondary:hover { filter: none; border-color: var(--gold); }
-  .wsel { color: var(--dim); font-size: .9rem; display: flex; align-items: center; gap: .5rem; margin-top: 1rem; }
+  .wsel { color: var(--dim); font-size: .9rem; display: flex; align-items: center; gap: .5rem; margin-top: .5rem; }
+  .wsel select { min-width: 0; }
   .wtag { color: var(--dim); font-weight: 400; }
   .weight-info {
-    display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; margin-top: .85rem;
+    display: flex; flex-wrap: wrap; gap: .4rem 1.4rem;
     color: var(--dim); font-size: .82rem;
   }
   .weight-info b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -192,7 +202,7 @@
   .share button:hover { border-color: var(--gold); }
   .share button.copied { border-color: var(--green); color: var(--green); }
   .share a { flex: 1; min-width: 12rem; font-size: .82rem; overflow-wrap: anywhere; }
-  @media (max-width: 640px) { .two { grid-template-columns: 1fr; } .vocs { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
   footer { text-align: center; color: var(--dim); font-size: .8rem; margin-top: 1.5rem; }
   footer code { color: var(--gold); }
   footer .tip { color: var(--gold); display: inline-block; margin-bottom: .5rem; }
@@ -217,28 +227,23 @@
   <div class="panel">
     <h2>Vocations to allow</h2>
     <div class="vocs" id="vocs"></div>
-    <label class="pawn"><input type="checkbox" id="pawn">
-      <span>Build for a <b>pawn</b></span>
-      <span class="pawn-note">— excludes hybrid vocations and forces extra level in starting class due to unavoidable quest experience</span>
-    </label>
-    <label class="pawn"><input type="checkbox" id="min-voc">
-      <span>Minimize <b>vocations</b></span>
-      <span class="pawn-note">— prefer fewer distinct vocations (fewer changes); likely to find a less optimal build</span>
-    </label>
-    <label class="pawn"><input type="checkbox" id="no-pre10">
-      <span>Disable low level vocation <b>switcheroo</b></span>
-      <span class="pawn-note">— keep all nine 1→10 levels in the start vocation (no Hard Mode trick)</span>
-    </label>
-    <label class="wsel">Weight class
-      <select id="weight"></select>
-    </label>
+    <label class="pawn" title="Excludes hybrid vocations and forces an extra level in the starting class due to unavoidable quest experience.">
+      <input type="checkbox" id="pawn"><span>Build for a <b>pawn</b></span></label>
+    <label class="pawn" title="Prefer fewer distinct vocations (fewer changes); likely to find a less optimal build.">
+      <input type="checkbox" id="min-voc"><span>Minimize <b>vocations</b></span></label>
+    <label class="pawn" title="Keep all nine 1→10 levels in the start vocation (no Hard Mode trick).">
+      <input type="checkbox" id="no-pre10"><span>Disable low level vocation <b>switcheroo</b></span></label>
+    <label class="wsel"><select id="weight"></select> Weight class</label>
     <div class="weight-info" id="weight-info"></div>
   </div>
 
   <div class="panel">
     <h2>Stat targets</h2>
+    <label class="maximize-pick">Maximize one stat (top priority)
+      <select id="maximize"><option value="">— none —</option></select>
+    </label>
     <div class="ranges" id="ranges">
-      <span class="head">Stat</span><span class="head">Min</span><span class="head">Max</span><span class="head">÷</span><span class="head">Bias</span><span class="head">Match</span><span class="head">Max!</span>
+      <span class="head">Stat</span><span class="head">Min</span><span class="head">Max</span><span class="head">÷</span><span class="head">Bias</span><span class="head">Match</span>
     </div>
     <p class="hint">Leave a field blank for no bound.<br>
       Setting <b>min = max</b> requests an exact value.<br>
@@ -248,9 +253,8 @@
       <b>Match</b> ties a stat to another: <b>=</b> equal, <b>~</b> approximate (within 10;
       hp↔st within 100).
       hp and st only pair with each other; combat stats pair with any other combat stat.<br>
-      <b>Max!</b> makes that one stat the top priority — it's maximized first, then
-      the rest of your settings are honored as long as that maximum still holds (only
-      one stat at a time; click again to clear).</p>
+      <b>Maximize</b> makes one stat the top priority — it's maximized first, then the rest
+      of your settings are honored as long as that maximum still holds.</p>
   </div>
 
   <div class="panel">
