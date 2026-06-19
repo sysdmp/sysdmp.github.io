@@ -155,7 +155,7 @@
   .wsel select { min-width: 0; }
   .wtag { color: var(--dim); font-weight: 400; }
   .weight-info {
-    display: flex; flex-wrap: wrap; gap: .4rem 1.4rem;
+    display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; margin-top: .75rem;
     color: var(--dim); font-size: .82rem;
   }
   .weight-info b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -234,7 +234,6 @@
     <label class="pawn" title="Keep all nine 1→10 levels in the start vocation (no Hard Mode trick).">
       <input type="checkbox" id="no-pre10"><span>Disable low level vocation <b>switcheroo</b></span></label>
     <label class="wsel"><select id="weight"></select> Weight class</label>
-    <div class="weight-info" id="weight-info"></div>
   </div>
 
   <div class="panel">
@@ -267,6 +266,7 @@
 
   <div class="panel" id="results">
     <h2 id="result-head">Best build</h2>
+    <div class="weight-info" id="weight-info"></div>
     <div class="two">
       <div>
         <table id="plan">

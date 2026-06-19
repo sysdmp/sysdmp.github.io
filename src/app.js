@@ -118,9 +118,9 @@ for (const v of ALL) {
 // below the basic vocations (so they sit to the left of the hybrid vocations in
 // the right column). They're authored in the template after #vocs; move the DOM
 // nodes, keeping their ids/listeners intact.
-for (const id of ['pawn', 'min-voc', 'no-pre10']) leftCol.appendChild($(id).closest('.pawn'));
 leftCol.appendChild($('weight').closest('.wsel'));
-leftCol.appendChild($('weight-info'));
+for (const id of ['pawn', 'min-voc', 'no-pre10']) leftCol.appendChild($(id).closest('.pawn'));
+// (the weight-class info display lives in the results panel, updated on solve)
 
 // Boolean option checkboxes, declared once: { DOM id, solver opt key, URL param }.
 // Everything that iterates the toggles — solve, encode, apply, reset — uses this
@@ -165,7 +165,7 @@ function updateWeightInfo() {
   const w = weightEl.value;
   const sg = WEIGHT_STAREGEN[w];
   weightInfoEl.innerHTML =
-    `<span>body weight <b>${WEIGHT_RANGE[w]}</b></span>` +
+    `<span>weight <b>${WEIGHT_RANGE[w]}</b></span>` +
     `<span>base stamina <b>${WEIGHT_BASE_ST[w]}</b></span>` +
     `<span>stamina regen <b>${sg.rate}/s</b> (${sg.pct})</span>` +
     `<span>max encumbrance <b>${WEIGHT_ENCUMBRANCE[w]}kg</b></span>`;
@@ -588,6 +588,7 @@ async function runSolve() {
       `Best ${kind} build — start as ${colorVoc(build.start)} <span class="wtag">(${weight})</span>${goal}`;
     renderPlan(build.start, build.counts);
     renderStats(build.stats, build.total, bounds);
+    updateWeightInfo(); // weight-class details now live in the results panel
     showShareUrl();
     const owoc = owocUrl(build);
     const owocEl = $('owoc-url');
