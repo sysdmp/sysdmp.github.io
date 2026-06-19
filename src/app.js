@@ -517,10 +517,13 @@ function renderStats(stats, total, bounds) {
     `<tr class="sum"><td>Total</td><td class="num">${total}</td><td></td></tr>`);
 }
 
-// Show a random flavor quote, avoiding an immediate repeat. textContent keeps it
-// safe against any punctuation in the quote strings.
+// Flavor quotes: show one after each solve, then rotate to a fresh one every
+// 30s. textContent keeps it safe against any punctuation in the quote strings.
+const QUOTE_ROTATE_MS = 30000;
 let lastQuote = -1;
-function showQuote() {
+let quoteTimer = null;
+
+function renderQuote() {
   let i = Math.floor(Math.random() * QUOTES.length);
   if (QUOTES.length > 1 && i === lastQuote) i = (i + 1) % QUOTES.length;
   lastQuote = i;
@@ -532,6 +535,18 @@ function showQuote() {
   cite.textContent = who;
   el.appendChild(cite);
   el.hidden = false;
+  // restart the left-to-right reveal: drop the class, force reflow, re-add it
+  el.classList.remove('reveal');
+  void el.offsetWidth;
+  el.classList.add('reveal');
+}
+
+// Show a quote now and (re)start the rotation. Called on each solve, so the
+// 15s clock restarts from the freshly-shown quote.
+function showQuote() {
+  renderQuote();
+  if (quoteTimer) clearInterval(quoteTimer);
+  quoteTimer = setInterval(renderQuote, QUOTE_ROTATE_MS);
 }
 
 // --- solve ---
@@ -631,6 +646,7 @@ function resetSelections() {
   // refresh dependent UI and clear the shared-state bits
   refreshAllCues();
   $('results').style.display = 'none';
+  if (quoteTimer) { clearInterval(quoteTimer); quoteTimer = null; } // results hidden; stop rotating
   history.replaceState(null, '', location.origin + location.pathname);
   status.classList.remove('err');
   // Restore the Solve button: enabled once the solver is loaded. (A solve may
