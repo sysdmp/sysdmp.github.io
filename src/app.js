@@ -541,13 +541,14 @@ function renderStats(stats, total, bounds) {
       `<td class="target${t.exact ? ' exact' : ''}">${t.text}</td></tr>`);
   }
   // Combat summary: the four combat stats only (attack/defense/mattack/mdefense),
-  // excluding hp and st. The formula is a tooltip on the label.
+  // excluding hp and st. The formula rides on an ⓘ tooltip next to the label.
   const combat = COMBAT.reduce((a, k) => a + stats[k], 0);
   body.insertAdjacentHTML('beforeend',
-    `<tr class="sum"><td title="attack + defense + mattack + mdefense">Combat</td>` +
+    `<tr class="sum"><td>Combat<i class="info" title="attack + defense + mattack + mdefense (excludes HP and stamina)">ⓘ</i></td>` +
     `<td class="num">${combat}</td><td></td></tr>`);
   body.insertAdjacentHTML('beforeend',
-    `<tr class="sum"><td>Total</td><td class="num">${total}</td><td></td></tr>`);
+    `<tr class="sum"><td>Total<i class="info" title="every stat added together: HP + stamina + the four combat stats">ⓘ</i></td>` +
+    `<td class="num">${total}</td><td></td></tr>`);
 }
 
 // Flavor quotes: show one after each solve, then rotate to a fresh one every
@@ -690,6 +691,39 @@ function resetSelections() {
   status.textContent = highs ? 'Reset to defaults.' : status.textContent;
 }
 $('reset').addEventListener('click', resetSelections);
+
+// --- ⓘ help icons: tap-to-show popover (mobile, where hover/title don't fire) ---
+// Delegated so it covers both the static checkbox icons and the ⓘ icons that
+// renderStats() injects into the summary rows. The desktop `title` tooltip still
+// works on hover; this adds an explicit tap affordance on top of it.
+function closeInfoPop() {
+  const open = document.querySelector('.info.open');
+  if (open) {
+    open.classList.remove('open');
+    open.querySelector('.info-pop')?.remove();
+  }
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.info-pop')) return; // tap inside the open popover: ignore
+  const icon = e.target.closest('.info');
+  if (!icon) { closeInfoPop(); return; }
+  // Don't let the tap toggle the checkbox/label the icon sits inside.
+  e.preventDefault();
+  e.stopPropagation();
+  const wasOpen = icon.classList.contains('open');
+  closeInfoPop();
+  if (wasOpen) return; // second tap on the same icon closes it
+  const pop = document.createElement('span');
+  pop.className = 'info-pop';
+  pop.textContent = icon.getAttribute('title') || '';
+  // Right-aligned icons (e.g. the summary rows) flip the popover to the right
+  // edge so it doesn't run off-screen.
+  if (icon.getBoundingClientRect().left > window.innerWidth / 2) pop.classList.add('flip-right');
+  icon.appendChild(pop);
+  icon.classList.add('open');
+});
+// Close on Escape for keyboard users.
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeInfoPop(); });
 
 // --- restore selections from the URL, then load the solver (auto-solve if shared) ---
 const sharedConfig = applySelections(new URLSearchParams(location.search));

@@ -91,7 +91,8 @@
   .voc .tag { font-size: .68rem; color: var(--dim); margin-left: auto; }
   .voc .tag.basic { color: var(--blue); }
   .voc .tag.hybrid { color: var(--gold); }
-  .pawn { display: flex; align-items: center; gap: .5rem; cursor: help; font-size: .9rem; }
+  .pawn { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+  .pawn .info { margin-left: -.15rem; } /* flex gap already spaces it from the label */
   .pawn input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
   /* extra space above the first toggle, separating it from the basic vocations */
   .voc-col .pawn:first-of-type { margin-top: .5rem; }
@@ -187,7 +188,29 @@
   .target.exact { color: var(--green); }
   tr.sum td { border-top: 2px solid var(--line); color: var(--gold); font-weight: 600; }
   tr.sum td.num { color: var(--gold-bright); }
-  tr.sum td[title] { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+  /* shared "explain this" affordance: a dimmed ⓘ that warms on hover (desktop)
+     and, on tap (mobile, where hover/title tooltips don't fire), shows the text
+     in the popover below. */
+  .info {
+    position: relative; display: inline-block; margin-left: .3em; color: var(--dim);
+    cursor: help; font-style: normal; font-weight: 400; font-size: .85em;
+    vertical-align: baseline; user-select: none;
+  }
+  .info:hover { color: var(--gold-bright); }
+  .info.open { color: var(--gold-bright); }
+  /* tap popover: positioned over the icon, shown only when .open is set in JS */
+  .info-pop {
+    position: absolute; z-index: 20; top: calc(100% + .35rem); left: 0;
+    width: max-content; max-width: min(78vw, 22rem);
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--gold);
+    border-radius: 7px; padding: .55rem .7rem; font-size: .8rem; line-height: 1.4;
+    font-style: normal; font-weight: 400; text-align: left; white-space: normal;
+    /* column headers are uppercased + letter-spaced; reset so the help reads normally */
+    text-transform: none; letter-spacing: normal;
+    box-shadow: 0 6px 20px rgba(0,0,0,.45); cursor: auto;
+  }
+  /* keep the popover from spilling off the right edge for right-aligned icons */
+  .info-pop.flip-right { left: auto; right: 0; }
   #results { display: none; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
   .share { display: flex; align-items: center; gap: .6rem; margin-top: 1.25rem; flex-wrap: wrap; }
@@ -231,33 +254,24 @@
   <div class="panel">
     <h2>Vocations to allow</h2>
     <div class="vocs" id="vocs"></div>
-    <label class="pawn" title="Excludes hybrid vocations and forces an extra level in the starting class due to unavoidable quest experience.">
-      <input type="checkbox" id="pawn"><span>Build for a <b>pawn</b></span></label>
-    <label class="pawn" title="Prefer fewer distinct vocations (fewer changes); likely to find a less optimal build.">
-      <input type="checkbox" id="min-voc"><span>Minimize <b>vocations</b></span></label>
-    <label class="pawn" title="Keep all nine 1→10 levels in the start vocation (no Hard Mode trick).">
-      <input type="checkbox" id="no-pre10"><span>Disable low level vocation <b>switcheroo</b></span></label>
+    <label class="pawn">
+      <input type="checkbox" id="pawn"><span>Build for a <b>pawn</b></span><i class="info" title="Excludes hybrid vocations and forces an extra level in the starting class due to unavoidable quest experience.">ⓘ</i></label>
+    <label class="pawn">
+      <input type="checkbox" id="min-voc"><span>Minimize <b>vocations</b></span><i class="info" title="Prefer fewer distinct vocations (fewer changes); likely to find a less optimal build.">ⓘ</i></label>
+    <label class="pawn">
+      <input type="checkbox" id="no-pre10"><span>Disable low level vocation <b>switcheroo</b></span><i class="info" title="Keep all nine 1→10 levels in the start vocation (no Hard Mode trick).">ⓘ</i></label>
     <label class="wsel"><select id="weight"></select> Weight class</label>
   </div>
 
   <div class="panel">
     <h2>Stat targets</h2>
-    <label class="maximize-pick">Maximize one stat (top priority)
+    <label class="maximize-pick">Maximize one stat (top priority)<i class="info" title="Pushes the chosen stat to its highest possible value first, then the rest of your settings apply only among builds that still hit it. A target that can't be met at that peak makes the build impossible (it won't settle for a lower maximum).">ⓘ</i>
       <select id="maximize"><option value="">— none —</option></select>
     </label>
     <div class="ranges" id="ranges">
-      <span class="head">Stat</span><span class="head">Min</span><span class="head">Max</span><span class="head">÷</span><span class="head">Bias</span><span class="head">Match</span>
+      <span class="head">Stat</span><span class="head">Min<i class="info" title="Minimum value for this stat. Setting min = max requests an exact value.">ⓘ</i></span><span class="head">Max<i class="info" title="Maximum value for this stat. Setting min = max requests an exact value.">ⓘ</i></span><span class="head">÷<i class="info" title="Forces the stat to a multiple of this divisor (e.g. 100) and ignores the max.">ⓘ</i></span><span class="head">Bias<i class="info" title="Softly favors (+) or deprioritizes (−) a stat in the objective; it bends the build but never overrides a min/max.">ⓘ</i></span><span class="head">Match<i class="info" title="Ties a stat to another: = equal, ~ approximate (within 10; hp↔st within 100). HP and stamina only pair with each other; combat stats pair with any other combat stat.">ⓘ</i></span>
     </div>
-    <p class="hint">Leave a field blank for no bound.<br>
-      Setting <b>min = max</b> requests an exact value.<br>
-      A <b>÷</b> divisor forces the stat to a multiple of it (e.g. 100) and ignores the max.<br>
-      <b>Bias</b> softly favors (+) or deprioritizes (−) a stat in the objective; it bends the
-      build but never overrides a min/max.<br>
-      <b>Match</b> ties a stat to another: <b>=</b> equal, <b>~</b> approximate (within 10;
-      hp↔st within 100).
-      hp and st only pair with each other; combat stats pair with any other combat stat.<br>
-      <b>Maximize</b> makes one stat the top priority — it's maximized first, then the rest
-      of your settings are honored as long as that maximum still holds.</p>
+    <p class="hint">Leave a field blank for no bound.</p>
   </div>
 
   <div class="panel">
