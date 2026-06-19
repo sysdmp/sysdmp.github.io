@@ -545,7 +545,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     `time_limit`: per-CBC-solve cap in seconds; None disables it (let CBC grind
     to a proven optimum, however long that takes).
     """
-    # Time-cap each CBC solve. Some flag combinations (e.g. --perfect all with a
+    # Time-cap each CBC solve. Some flag combinations (e.g. --divisor 100 with a
     # continuous --bias t) leave CBC with the optimum already in hand but unable
     # to *prove* it for a long time; with a limit it returns the best incumbent,
     # which is fine here (we round/pin values anyway, and want a build, not a

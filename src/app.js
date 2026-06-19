@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Landing-page controller: builds the vocation picker + stat targets, loads the
 // HiGHS WASM solver, runs solveMaxTotal, and renders the result. Authoring source
-// lives in src/; `make` bundles it into a single self-contained index.js.
+// lives in src/; `make` bundles it into a single self-contained index.html.
 
 import { loadHighs } from './highs-loader.js';
 import { solveMaxTotal } from './solver.js';

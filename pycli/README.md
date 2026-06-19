@@ -104,33 +104,33 @@ found 1 build(s):
 ====================================================
  build 1   [OK] all requirements met
 ====================================================
-                             leveling plan
-+----------+--------+---------------------------------------------------+
-| range    | levels | vocations                                         |
-+----------+--------+---------------------------------------------------+
-| start    |      - | fighter                                           |
-| 1->10    |      9 | mage x9                                           |
-| 10->100  |     90 | fighter x87  sorcerer x3                          |
-| 100->200 |    100 | strider x15  mage x22  sorcerer x52  assassin x11 |
-+----------+--------+---------------------------------------------------+
+               leveling plan
++----------+--------+-----------------------+
+| range    | levels | vocations             |
++----------+--------+-----------------------+
+| start    |      - | fighter               |
+| 1->10    |      9 | mage x9               |
+| 10->100  |     90 | fighter x90           |
+| 100->200 |    100 | mage x62  warrior x38 |
++----------+--------+-----------------------+
  ⚠  changing vocation before level 10:
     to do it, restart the game in Hard Mode — this resets save
     progress, but the character keeps its levels and items.
- vocation switches: 6 (7 leveling blocks across the 3 ranges)
+ vocation switches: 3 (4 leveling blocks across the 3 ranges)
                       final stats
 +--------------+-------+---------------------------------+
 | stat         | value | details                         |
 +--------------+-------+---------------------------------+
-| hp           |  4785 | >=3200                          |
-| st           |  3200 | >=3200                          |
-| attack       |   500 | >=500                           |
-| defense      |   484 | >=300                           |
-| mattack      |   500 | >=500                           |
-| mdefense     |   300 | >=300                           |
+| hp           |  4788 | >=3500                          |
+| st           |  3260 | -                               |
+| attack       |   534 | -                               |
+| defense      |   543 | >=300                           |
+| mattack      |   400 | -                               |
+| mdefense     |   301 | >=300                           |
 | ---          |   --- | ---                             |
-| combat       |  1784 | attack+mattack+defense+mdefense |
-| vitals       |  7985 | hp + st                         |
-| total        |  9769 | all stats                       |
+| combat       |  1778 | attack+mattack+defense+mdefense |
+| vitals       |  8048 | hp + st                         |
+| total        |  9826 | all stats                       |
 | ---          |   --- | ---                             |
 | weight class |     M | 70-89kg                         |
 | base st      |   540 | base stamina                    |
@@ -180,7 +180,7 @@ its min as a floor. A stat may be either divisor-rounded or `nice`, not both, an
 
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
-| `--match PAIRS`         | Comma-separated stat pairs tied together. `a=b` forces **equal** final values; `a~b` lets them differ by at most **10** points (e.g. `attack~mattack` might give 490 / 500). Mix freely: `attack=mattack,defense~mdefense`. The keyword `all` expands to the three exact pairings `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
+| `--match PAIRS`         | Comma-separated stat pairs tied together. `a=b` forces **equal** final values; `a~b` lets them differ by at most **10** points for combat pairs, or **100** for the `hp~st` pair (e.g. `attack~mattack` might give 490 / 500). Mix freely: `attack=mattack,defense~mdefense`. The keyword `all` expands to the three exact pairings `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
 | `--bias STATS`          | Comma-separated **priority tiers** of stats to softly favor — the first tier favored most, each later tier less. Positively-biased stats are guaranteed to grow (an equal-share floor proportional to their tier), then the weighted total maximizes within that. Group stats into one tier (equal weight) with `=`: e.g. `attack=mattack,mdefense` favors attack and mattack equally (tier 1) and mdefense too but less (tier 2). Prefix a tier with `-` to **reduce** a stat's weight instead — pass it via the `=` form so argparse keeps the dash (`--bias=-mattack`) or after a comma (`attack,-mattack`); positive and negative tiers are independent and their order doesn't matter. A soft preference; use `--maximize`/`--minimize` for hard guarantees. |
 | `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. Sits above the total-stat objective. |
 | `--minimize STATS`      | Comma-separated stats to **hard-minimize**, highest priority first. Ranked below `--maximize`, above the total-stat objective. |
@@ -206,6 +206,7 @@ balanced build from piling level-ups into them at the expense of combat stats. P
 | `--weight CLASS` | Weight class, which sets base stamina, stamina-regen rate, and max encumbrance. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
 | `--avoid VOCS`   | Comma-separated vocations to drop from consideration entirely (never leveled in any range, and excluded as a start vocation). |
 | `--pawn`         | Build for a pawn: excludes `mknight,marcher,assassin` (as `--avoid`), **and** enforces the pawn 1→10 rule (see below). |
+| `--no-early-switcheroo` | Forbid changing vocation before level 10: all nine 1→10 levels stay in the start vocation (no Hard Mode restart trick). Honored by both solvers. |
 
 | Class | Body weight     | Base stamina | Stamina regen | Max encumbrance |
 |-------|-----------------|--------------|---------------|-----------------|
@@ -270,7 +271,9 @@ The JSON document is **self-describing and round-trippable**. It opens with a
 command) — recording the exact invocation that produced it. It then includes the weight
 class, the full constraints (with `exact`, a `divisor` integer (or null), and a `nice`
 flag per stat), the `match` triples (each `[stat_a, stat_b, tolerance]`, where
-tolerance 0 means equal and 10 means the `~` within-10 mode), the `pawn` flag and any `avoided_vocations`,
+tolerance 0 means equal and a positive value is the `~` mode's allowed gap — 10 for
+combat pairs, 100 for `hp~st`), the `pawn` and `no_early_switcheroo` flags and any
+`avoided_vocations`,
 the `bias` list plus a structured `bias_tiers` array (each `{sign, stats}`, preserving
 tier grouping and +/- emphasis), the `maximize` / `minimize` lists, the solver used, the
 `requested` / `found` counts, and a `builds` array. Each build reports its `start`
@@ -354,7 +357,7 @@ $ ddda-build-solver.py --import build.json
 - **`--match` exact (`=`) links are transitive** in the constraints display: `a=b,b=c`
   ties all three, and the shown min/max for each becomes the tightest (intersected) bound
   of the group. Approximate (`~`) links do not merge bounds, since the stats need not
-  share a value — only stay within 10 of each other.
+  share a value — only stay within the tolerance (10 for combat pairs, 100 for `hp~st`).
 - **The growth data assumes the patched (non-vanilla) Magick Archer `to200` values.**
   The owoc planner links use the planner's patched mode (`a` prefix) to match.
 - **The owoc planner link encodes the leveling plan losslessly.** The solver only ever

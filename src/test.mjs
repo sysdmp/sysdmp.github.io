@@ -4,7 +4,7 @@
 // coarse-divisor case (st÷3333). Runs under Node (not the bundler), so it loads
 // HiGHS via the package's own factory rather than the inlined-wasm build loader.
 //
-// Run: npm test  (from web/)
+// Run: npm test  (from the repo root)
 
 import { createRequire } from 'node:module';
 import {

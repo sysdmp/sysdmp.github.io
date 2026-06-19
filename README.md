@@ -20,11 +20,19 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
   other combat stat.
 - **Bias** — soft per-stat preference (−5..+5); bends the build, never overrides
   a bound.
+- **Maximize** — make one stat the top priority (lexicographic): maximized first,
+  then the rest of the settings are honored within that maximum.
+- **Minimize vocations** — prefer builds using fewer distinct vocations.
 - **Pawn mode** — excludes the hybrid (Arisen-only) vocations and forces ≥1 of
   the 1→10 levels into the starting vocation.
+- **No early switcheroo** — keep all nine 1→10 levels in the start vocation.
 - **Weight class** (SS–LL) — sets level-1 stamina.
 
-Files:
+It also restricts the vocation pool, shares the configuration via the URL, links
+to the [owoc.github.io](https://owoc.github.io) planner, and offers light/dark/auto
+themes.
+
+## Files
 
 Source lives in `src/`; the deployable site is built from it:
 
