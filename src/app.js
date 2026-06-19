@@ -146,7 +146,9 @@ pawnEl.addEventListener('change', updatePawnUI);
 updatePawnUI();
 
 const selectedVocs = () =>
-  [...vocsEl.querySelectorAll('input:checked')].map((cb) => cb.value);
+  // Scope to .voc: the option toggles (pawn/min-voc/no-pre10) also live in #vocs,
+  // and their checkbox value is "on" — they must not leak into the vocation list.
+  [...vocsEl.querySelectorAll('.voc input:checked')].map((cb) => cb.value);
 
 // --- populate the weight-class selector (sets level-1 stamina) ---
 // Only base stamina affects the solve; the body-weight range, stamina-recovery
@@ -451,10 +453,12 @@ function encodeSelections() {
 function applySelections(params) {
   if ([...params.keys()].length === 0) return false;
 
-  // Vocations: only those listed stay checked (default = all on).
+  // Vocations: only those listed stay checked (default = all on). Scope to .voc —
+  // the option toggles also live in #vocs and have no .voc ancestor (closest()
+  // would return null and throw), and must not be driven by the vocation list.
   if (params.has('v')) {
     const want = new Set(params.get('v').split(',').filter(Boolean));
-    for (const cb of vocsEl.querySelectorAll('input[type="checkbox"]')) {
+    for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]')) {
       cb.checked = want.has(cb.value);
       cb.closest('.voc').classList.toggle('off', !cb.checked);
     }
