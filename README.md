@@ -89,6 +89,23 @@ make            # -> index.html (~4 MB, everything inlined)
 make clean      # remove the built index.html
 ```
 
+## Versioning
+
+The single source of truth for the web app's version is **`package.json`'s
+`version`** (classic semver `x.y.z`, currently `0.0.1`). The build injects it
+into the bundle and the page footer ("Version x.y.z"); nothing else hardcodes a
+number. Bump it and create the matching git tag in one step:
+
+```sh
+npm version patch      # x.y.(z+1)  — bug fixes / tweaks
+npm version minor      # x.(y+1).0  — bump y whenever the share-URL params change
+npm version major      # (x+1).0.0
+```
+
+Then rebuild (`make`) so the footer reflects the new version. (This is the web
+app's version only — the Python prototype in `pycli/` versions independently via
+`pyproject.toml`.)
+
 ## Running the page
 
 Because everything is inlined into one file, just open it — no server needed:

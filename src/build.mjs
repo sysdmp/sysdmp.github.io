@@ -17,6 +17,12 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 
+// Single source of truth for the web app version: package.json's "version".
+// `npm version x.y.z` bumps it and creates the matching git tag. The bump
+// policy is classic semver; bump the minor (y) whenever the share-URL params
+// change (so an old link can be recognized as a different schema).
+const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
+
 const result = await build({
   entryPoints: [join(HERE, 'app.js')],
   bundle: true,
@@ -27,6 +33,8 @@ const result = await build({
   loader: { '.wasm': 'binary' }, // inline the HiGHS wasm as bytes (base64)
   external: ['node:*'], // drop HiGHS's dead Node-only branches
   legalComments: 'none',
+  // Inject the version as a compile-time constant; app.js reads __APP_VERSION__.
+  define: { __APP_VERSION__: JSON.stringify(VERSION) },
   write: false, // keep the output in memory; we inline it ourselves
 });
 
@@ -40,8 +48,10 @@ const template = readFileSync(join(HERE, 'index.html'), 'utf8');
 if (!template.includes('/*__BUNDLE__*/')) {
   throw new Error('src/index.html is missing the /*__BUNDLE__*/ placeholder');
 }
-const html = template.replace('/*__BUNDLE__*/', () => safeJs);
+const html = template
+  .replace('/*__BUNDLE__*/', () => safeJs)
+  .replaceAll('__APP_VERSION__', VERSION); // footer (and anywhere else in the template)
 
 const out = join(ROOT, 'index.html');
 writeFileSync(out, html);
-console.log(`built index.html (${html.length} bytes)`);
+console.log(`built index.html v${VERSION} (${html.length} bytes)`);
