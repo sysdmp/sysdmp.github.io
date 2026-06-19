@@ -155,7 +155,7 @@
 <div class="wrap">
   <header>
     <h1>DDDA Build Solver</h1>
-    <p>Dragon's Dogma™: Dark Arisen — level-200 build optimizer (runs entirely in your browser)</p>
+    <p>Dragon's Dogma™: Dark Arisen — level 200 build optimizer</p>
   </header>
 
   <div class="panel">
@@ -163,7 +163,7 @@
     <div class="vocs" id="vocs"></div>
     <label class="pawn"><input type="checkbox" id="pawn">
       <span>Build for a <b>pawn</b></span>
-      <span class="pawn-note">— excludes hybrid vocations and forces ≥1 starting-class level (1→10)</span>
+      <span class="pawn-note">— excludes hybrid vocations and forces 1 level in starting class due to unavoidable quest experience</span>
     </label>
     <label class="pawn"><input type="checkbox" id="min-voc">
       <span>Minimize <b>vocations</b></span>
@@ -190,7 +190,7 @@
       <b>Bias</b> softly favors (+) or deprioritizes (−) a stat in the objective; it bends the
       build but never overrides a min/max.<br>
       <b>Match</b> ties a stat to another: <b>=</b> equal, <b>~</b> approximate (within 10;
-      hp↔st within 100).<br>
+      hp↔st within 100).
       hp and st only pair with each other; combat stats pair with any other combat stat.<br>
       <b>Max!</b> makes that one stat the top priority — it's maximized first, then
       the rest of your settings are honored as long as that maximum still holds (only
@@ -237,9 +237,9 @@
   </div>
 
   <footer>
-    Solver: <a href="https://github.com/lovasoa/highs-js">HiGHS</a> (WASM MILP), MIT-licensed.
-    <br>Dragon's Dogma™ is a trademark of CAPCOM. This is an unofficial fan-made tool, not
-    affiliated with or endorsed by CAPCOM.
+    Solver: <a href="https://github.com/lovasoa/highs-js">HiGHS</a>.
+    <br>Dragon's Dogma™ is a trademark of CAPCOM Co., Ltd. This is an unofficial fan-made tool, not
+    affiliated with or endorsed by CAPCOM Co., Ltd.
   </footer>
 </div>
 
