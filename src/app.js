@@ -490,7 +490,7 @@ function showShareUrl() {
   const params = encodeSelections();
   const qs = params.toString();
   const url = location.origin + location.pathname + (qs ? '?' + qs : '');
-  $('share-url').value = url;
+  $('cfg-url').value = url;
   // keep the address bar in sync so a plain reload preserves the config too
   history.replaceState(null, '', url);
 }
@@ -660,9 +660,9 @@ solveBtn.disabled = true;
 solveBtn.addEventListener('click', runSolve);
 
 // --- copy-to-clipboard for the share link ---
-$('share-copy').addEventListener('click', async () => {
-  const btn = $('share-copy');
-  const input = $('share-url');
+$('cfg-copy').addEventListener('click', async () => {
+  const btn = $('cfg-copy');
+  const input = $('cfg-url');
   try {
     await navigator.clipboard.writeText(input.value);
   } catch {

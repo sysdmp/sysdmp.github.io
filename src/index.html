@@ -213,27 +213,27 @@
   .info-pop.flip-right { left: auto; right: 0; }
   #results { display: none; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
-  /* .share is a plain block: the label sits on its own line above the controls.
-     The controls live in .share-row (the flex container). Deliberately NOT putting
-     the label inside a flex row — Safari can resolve flex:0 0 100% to a 0-width
-     basis there, collapsing the label to nothing on narrow screens. */
-  .share { margin-top: 1.25rem; }
-  .share-label { display: block; margin-bottom: .4rem; color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
-  .share-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-  .share input {
+  /* NOTE: these were once class "share"/"share-row" — renamed to "cfglink" because
+     ad/content blockers ship cosmetic filters that hide any element whose class
+     contains "share" (assuming a social-share widget), which made the labels and
+     links vanish for users with such a blocker. Keep these names blocker-neutral. */
+  .cfglink { margin-top: 1.25rem; }
+  .cfglink-label { display: block; margin-bottom: .4rem; color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  .cfglink-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  .cfglink input {
     flex: 1; min-width: 12rem; background: var(--panel-2); color: var(--dim);
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem;
     font: inherit; font-size: .82rem;
   }
-  .share input:focus { outline: none; border-color: var(--gold); }
-  .share button {
+  .cfglink input:focus { outline: none; border-color: var(--gold); }
+  .cfglink button {
     padding: .5rem 1rem; font-size: .85rem; border-radius: 6px;
     background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
     font-weight: 600; cursor: pointer;
   }
-  .share button:hover { border-color: var(--gold); }
-  .share button.copied { border-color: var(--green); color: var(--green); }
-  .share a { flex: 1; min-width: 12rem; font-size: .82rem; overflow-wrap: anywhere; }
+  .cfglink button:hover { border-color: var(--gold); }
+  .cfglink button.copied { border-color: var(--green); color: var(--green); }
+  .cfglink a { flex: 1; min-width: 12rem; font-size: .82rem; overflow-wrap: anywhere; }
   @media (max-width: 640px) { .two { grid-template-columns: 1fr; } }
   footer { text-align: center; color: var(--dim); font-size: .8rem; margin-top: 1.5rem; }
   footer code { color: var(--gold); }
@@ -307,16 +307,16 @@
         </table>
       </div>
     </div>
-    <div class="share">
-      <span class="share-label">Share this configuration:</span>
-      <div class="share-row">
-        <input id="share-url" type="text" readonly>
-        <button id="share-copy" type="button">Copy</button>
+    <div class="cfglink">
+      <span class="cfglink-label">Share this configuration:</span>
+      <div class="cfglink-row">
+        <input id="cfg-url" type="text" readonly>
+        <button id="cfg-copy" type="button">Copy</button>
       </div>
     </div>
-    <div class="share">
-      <span class="share-label">Fine-tune on owoc planner:</span>
-      <div class="share-row">
+    <div class="cfglink">
+      <span class="cfglink-label">Fine-tune on owoc planner:</span>
+      <div class="cfglink-row">
         <a id="owoc-url" href="#" target="_blank" rel="noopener noreferrer"></a>
       </div>
     </div>
