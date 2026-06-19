@@ -100,10 +100,14 @@
   .ranges .head { color: var(--gold); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
   .ranges .head:last-child { text-align: center; }
   .ranges .rname { color: var(--blue); white-space: nowrap; }
+  .ranges .rname.maxed { color: var(--dim); opacity: .55; }
   .ranges input[type="number"], .ranges select {
     width: 100%; min-width: 0; background: var(--panel-2); color: var(--text);
     border: 1px solid var(--line); border-radius: 5px; padding: .4rem .5rem;
     font: inherit; font-variant-numeric: tabular-nums;
+  }
+  .ranges input:disabled, .ranges select:disabled {
+    opacity: .4; cursor: not-allowed; background: var(--panel);
   }
   .ranges select { cursor: pointer; }
   .ranges select.bias-pos { border-color: var(--green); color: var(--green); }

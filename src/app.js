@@ -180,6 +180,7 @@ const rangesEl = $('ranges');
 for (const k of STATS) {
   const name = document.createElement('span');
   name.className = 'rname';
+  name.dataset.stat = k;
   name.textContent = STAT_LABEL[k];
   const mk = (kind) => {
     const inp = document.createElement('input');
@@ -261,8 +262,32 @@ for (const k of STATS) {
   opt.textContent = STAT_LABEL[k];
   maximizeEl.appendChild(opt);
 }
+let prevMax = ''; // the stat that was maximized before the last change (for default restore)
 function updateMaximizeCue() {
-  maximizeEl.classList.toggle('on', maximizeEl.value !== '');
+  const max = maximizeEl.value;
+  maximizeEl.classList.toggle('on', max !== '');
+  // The maximized stat is driven to its global peak, so its own min/max/divisor/
+  // bias/match inputs can't apply — disable them and dim the row's label.
+  for (const k of STATS) {
+    const off = k === max;
+    for (const el of [...statInputs(k), biasSelect(k), matchSelect(k)]) el.disabled = off;
+    rangesEl.querySelector(`.rname[data-stat="${k}"]`)?.classList.toggle('maxed', off);
+  }
+  // A greyed-out min still showing its prefilled default reads as an active bound.
+  // Blank the newly-maximized stat's min if it's the untouched default; restore the
+  // default on the stat we just stopped maximizing if its (disabled) min was left
+  // blank. Only the previously-maximized stat is restored, so a min the user cleared
+  // by hand on some other stat is never repopulated.
+  if (max && DEFAULT_MIN[max] != null) {
+    const [mn] = statInputs(max);
+    if (mn.value === String(DEFAULT_MIN[max])) mn.value = '';
+  }
+  if (prevMax && prevMax !== max && DEFAULT_MIN[prevMax] != null) {
+    const [mn] = statInputs(prevMax);
+    if (mn.value === '') mn.value = DEFAULT_MIN[prevMax];
+  }
+  prevMax = max;
+  updateExactCues(); // min may have been blanked/restored
 }
 maximizeEl.addEventListener('change', updateMaximizeCue);
 
@@ -301,11 +326,14 @@ function collectMaximize() {
   return maximizeEl.value || null;
 }
 
-// Collect the per-stat bias map (omitting neutral 0).
+// Collect the per-stat bias map (omitting neutral 0). Skips the maximized stat,
+// whose controls are disabled (its bias can't apply).
 function collectBias() {
   const bias = {};
   for (const k of STATS) {
-    const v = Number(biasSelect(k).value);
+    const sel = biasSelect(k);
+    if (sel.disabled) continue;
+    const v = Number(sel.value);
     if (v !== 0) bias[k] = v;
   }
   return bias;
@@ -318,7 +346,9 @@ function collectMatch() {
   const pairs = [];
   const seen = new Set();
   for (const k of STATS) {
-    const v = matchSelect(k).value; // '' | '=partner' | '~partner'
+    const sel = matchSelect(k);
+    if (sel.disabled) continue; // maximized stat: match can't apply
+    const v = sel.value; // '' | '=partner' | '~partner'
     if (!v) continue;
     const op = v[0];
     const partner = v.slice(1);
@@ -338,6 +368,7 @@ function collectBounds() {
   const bounds = {};
   for (const k of STATS) {
     const [mn, mx, dv] = statInputs(k);
+    if (mn.disabled) continue; // maximized stat: its own bounds/divisor can't apply
     const min = mn.value === '' ? null : Number(mn.value);
     const max = mx.value === '' ? null : Number(mx.value);
     const divisor = dv.value === '' ? null : Number(dv.value);
