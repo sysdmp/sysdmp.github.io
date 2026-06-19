@@ -213,10 +213,13 @@
   .info-pop.flip-right { left: auto; right: 0; }
   #results { display: none; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
-  .share { display: flex; align-items: center; gap: .6rem; margin-top: 1.25rem; flex-wrap: wrap; }
-  /* label takes a full row of the flex container; the control(s) wrap below it.
-     Always visible regardless of width — avoids the long owoc URL squeezing it out. */
-  .share-label { flex: 0 0 100%; color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  /* .share is a plain block: the label sits on its own line above the controls.
+     The controls live in .share-row (the flex container). Deliberately NOT putting
+     the label inside a flex row — Safari can resolve flex:0 0 100% to a 0-width
+     basis there, collapsing the label to nothing on narrow screens. */
+  .share { margin-top: 1.25rem; }
+  .share-label { display: block; margin-bottom: .4rem; color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  .share-row { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
   .share input {
     flex: 1; min-width: 12rem; background: var(--panel-2); color: var(--dim);
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem;
@@ -306,12 +309,16 @@
     </div>
     <div class="share">
       <span class="share-label">Share this configuration:</span>
-      <input id="share-url" type="text" readonly>
-      <button id="share-copy" type="button">Copy</button>
+      <div class="share-row">
+        <input id="share-url" type="text" readonly>
+        <button id="share-copy" type="button">Copy</button>
+      </div>
     </div>
     <div class="share">
       <span class="share-label">Fine-tune on owoc planner:</span>
-      <a id="owoc-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+      <div class="share-row">
+        <a id="owoc-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+      </div>
     </div>
     <p class="warn" id="owoc-warn" hidden>⚠ The owoc planner only supports the
       <b>M</b> weight class, so stamina will read differently there for this build.</p>
