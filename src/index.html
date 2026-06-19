@@ -214,7 +214,9 @@
   #results { display: none; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
   .share { display: flex; align-items: center; gap: .6rem; margin-top: 1.25rem; flex-wrap: wrap; }
-  .share-label { color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; flex-shrink: 0; }
+  /* label takes a full row of the flex container; the control(s) wrap below it.
+     Always visible regardless of width — avoids the long owoc URL squeezing it out. */
+  .share-label { flex: 0 0 100%; color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
   .share input {
     flex: 1; min-width: 12rem; background: var(--panel-2); color: var(--dim);
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem;
