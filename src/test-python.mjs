@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Cross-validation: compare the web (HiGHS) solver against the Python prototype,
 // treating Python as the source of truth. Two suites:
 //   - STATIC:  a fixed list of representative cases (deterministic).

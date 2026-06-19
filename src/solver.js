@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Browser MILP solver for Dragon's Dogma™: Dark Arisen level-200 builds.
 //
 // Engine: HiGHS (WebAssembly), which has CBC-class cut generation — it solves

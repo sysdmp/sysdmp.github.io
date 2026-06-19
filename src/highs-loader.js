@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Loads the HiGHS WASM solver and returns an initialized instance.
 //
 // HiGHS ships a UMD bundle plus a separate .wasm file. To produce a single

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Build the self-contained, minified bundle for static hosting (gh-pages).
 #
 # `make` bundles src/app.js and everything it imports — the solver, data, and the
@@ -27,6 +28,7 @@ $(OUT): $(wildcard src/*.js) package.json
 		--loader:.wasm=binary \
 		--external:node:* \
 		--legal-comments=none \
+		--banner:js='// SPDX-License-Identifier: MIT' \
 		--outfile=$(OUT)
 	@echo "built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 

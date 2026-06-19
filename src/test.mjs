@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Test harness for the solver (src/solver.js, HiGHS backend). Checks against the
 // closed-form balanced optimum and every specifier behavior, including the
 // coarse-divisor case (st÷3333). Runs under Node (not the bundler), so it loads

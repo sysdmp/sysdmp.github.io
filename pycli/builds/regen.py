@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
 """Regenerate every build pair in this directory from its own recorded command.
 
 Each builds/<name>.json embeds the exact command line that produced it (under

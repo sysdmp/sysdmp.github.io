@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Per-level stat-growth data for Dragon's Dogma™: Dark Arisen, ported verbatim
 // from the Python prototype (ddda-build-solver.py). Values are the patched
 // (non-vanilla) set — note marcher.to200 mattack=1/mdefense=2.
