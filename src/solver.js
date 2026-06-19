@@ -248,10 +248,14 @@ function decode(sol, pool) {
  *                                    (tol 0 = exact equality). A hard constraint.
  * @param {string} [opts.weight]      weight class (SS/S/M/L/LL); sets level-1 stamina.
  * @param {string} [opts.maximize]    a single stat to maximize as the TOP priority,
- *                                    lexicographically: first maximize it subject to
- *                                    all other settings (bounds/divisor/match/pawn/…),
- *                                    then optimize the balanced objective among builds
- *                                    that still achieve that maximum.
+ *                                    lexicographically: first maximize it to its GLOBAL
+ *                                    optimum over the structural build space only (pool,
+ *                                    pawn, weight, no-switcheroo) — the per-stat bounds and
+ *                                    match are NOT applied in this pass, so they can't lower
+ *                                    the peak. That peak is pinned, then the bounds/match and
+ *                                    the balanced objective apply among builds that still hit
+ *                                    it. A bound that conflicts with the peak makes the build
+ *                                    infeasible (rather than settling for a lower maximum).
  * @param {boolean} [opts.minimizeVocations] prefer builds using fewer distinct
  *                                    vocations (fewer vocation changes) as the dominant
  *                                    objective term, then the balanced total. May yield
@@ -286,10 +290,10 @@ export function solveMaxTotal(highs, opts = {}) {
   // The per-start model config shared by both passes; objStat/pin vary per pass.
   const modelBase = { pool, bounds, baseSt, bias, pawn: opts.pawn, match, minVoc, noPre10Switch };
 
-  const solve = (objStat, pin) => {
+  const solve = (objStat, pin, override = {}) => {
     const results = [];
     for (const start of starts) {
-      const lp = buildLP({ ...modelBase, start, objStat, pin });
+      const lp = buildLP({ ...modelBase, ...override, start, objStat, pin });
       if (lp === null) continue; // trivially infeasible for this start
       const sol = highs.solve(lp, SOLVE_OPTS);
       if (sol.Status !== 'Optimal') continue; // Infeasible / Unbounded -> skip
@@ -301,12 +305,16 @@ export function solveMaxTotal(highs, opts = {}) {
   };
 
   // Without --maximize: a single balanced solve, best start by the biased total.
-  // With --maximize: lexicographic. Pass 1 maximizes the chosen stat (honoring all
-  // other settings) to find its best achievable value across starts; pass 2 then
-  // optimizes the balanced objective among builds that still hit that value.
+  // With --maximize: lexicographic, and maximize is the TOP priority. Pass 1 finds
+  // the stat's GLOBAL maximum over the structural build space only (pool, pawn,
+  // weight, no-switcheroo) — deliberately ignoring the per-stat bounds and match,
+  // so those can't quietly lower the achieved peak. Pass 2 pins that peak and then
+  // applies every bound/match: if a target can't be met without dropping below the
+  // peak, no candidate survives and the build is infeasible (rather than settling
+  // for a smaller maximized value).
   let candidates;
   if (maximize) {
-    const pass1 = solve(maximize, null);
+    const pass1 = solve(maximize, null, { bounds: {}, match: [] });
     if (pass1.length === 0) throw new Error('no build satisfies these constraints');
     const maxVal = Math.max(...pass1.map((r) => r.stats[maximize]));
     candidates = solve(null, { stat: maximize, value: maxVal });

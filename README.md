@@ -20,8 +20,11 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
   other combat stat.
 - **Bias** — soft per-stat preference (−5..+5); bends the build, never overrides
   a bound.
-- **Maximize** — make one stat the top priority (lexicographic): maximized first,
-  then the rest of the settings are honored within that maximum.
+- **Maximize** — make one stat the top priority (lexicographic): pushed to its
+  global maximum first (over the structural build space — pool/pawn/weight/no-
+  switcheroo only), then the rest of the settings apply within that maximum. A
+  target that conflicts with the peak makes the build infeasible rather than
+  lowering the maximized value.
 - **Minimize vocations** — prefer builds using fewer distinct vocations.
 - **Pawn mode** — excludes the hybrid (Arisen-only) vocations and forces ≥1 of
   the 1→10 levels into the starting vocation.

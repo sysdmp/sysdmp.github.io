@@ -608,44 +608,55 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # each stat's final value as a linear expression
         exprs = {}
         for k in STATS:
-            expr = base[k] \
+            exprs[k] = base[k] \
                 + pulp.lpSum(growth(v,'to10')[k]  * x10[v]  for v in basic_pool) \
                 + pulp.lpSum(growth(v,'to100')[k] * x100[v] for v in adv_pool) \
                 + pulp.lpSum(growth(v,'to200')[k] * x200[v] for v in adv_pool)
-            exprs[k] = expr
-            lo, hi = cons[k]
-            if k in rounding:
-                # divisor mode: value == divisor*mult, min kept as floor, max dropped
-                divisor = rounding[k]
-                mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
-                prob += expr == divisor * mult
-                if lo is not None: prob += expr >= lo
-            elif k in nice:
-                # nice mode: value must be one of the enumerated nice numbers in
-                # [floor, reachable-max]. Pick exactly one via binary selectors.
-                floor = lo if lo is not None else 0
-                ub = _stat_upper_bound(k, base, adv_pool, basic_pool)
-                choices = nice_values(floor, ub)
-                if not choices:
-                    # no nice value is reachable for this stat -> infeasible start
-                    prob += expr <= -1   # trivially unsatisfiable
-                else:
-                    sel = {nv: pulp.LpVariable(f"nice_{k}_{nv}_{start}", cat="Binary") for nv in choices}
-                    prob += pulp.lpSum(sel.values()) == 1
-                    prob += expr == pulp.lpSum(nv * sel[nv] for nv in choices)
-                if lo is not None: prob += expr >= lo
-            else:
-                if lo is not None: prob += expr >= lo
-                if hi is not None: prob += expr <= hi
 
-        # match mode: tol 0 forces paired stats to share a value; tol>0 (the '~'
-        # operator) lets them differ by at most `tol` points (|a - b| <= tol).
-        for a_stat, b_stat, tol in match:
-            if tol == 0:
-                prob += exprs[a_stat] == exprs[b_stat]
-            else:
-                prob += exprs[a_stat] - exprs[b_stat] <= tol
-                prob += exprs[b_stat] - exprs[a_stat] <= tol
+        # The per-stat bounds / divisor / nice / match targets are applied via this
+        # closure, NOT inline -- because --maximize / --minimize must rank ABOVE
+        # them. They're maximized first (over the structural build space only: pool,
+        # pawn, no-switcheroo, weight) to find the stat's true global optimum, that
+        # optimum is pinned, and only THEN are the targets imposed. So a target that
+        # conflicts with the maximized peak makes the build infeasible rather than
+        # quietly lowering the maximized value. Called after the lex pre-pass below.
+        def apply_targets():
+            nonlocal prob  # `prob += ...` augmented-assigns, so bind the outer one
+            for k in STATS:
+                expr = exprs[k]
+                lo, hi = cons[k]
+                if k in rounding:
+                    # divisor mode: value == divisor*mult, min kept as floor, max dropped
+                    divisor = rounding[k]
+                    mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
+                    prob += expr == divisor * mult
+                    if lo is not None: prob += expr >= lo
+                elif k in nice:
+                    # nice mode: value must be one of the enumerated nice numbers in
+                    # [floor, reachable-max]. Pick exactly one via binary selectors.
+                    floor = lo if lo is not None else 0
+                    ub = _stat_upper_bound(k, base, adv_pool, basic_pool)
+                    choices = nice_values(floor, ub)
+                    if not choices:
+                        # no nice value is reachable for this stat -> infeasible start
+                        prob += expr <= -1   # trivially unsatisfiable
+                    else:
+                        sel = {nv: pulp.LpVariable(f"nice_{k}_{nv}_{start}", cat="Binary") for nv in choices}
+                        prob += pulp.lpSum(sel.values()) == 1
+                        prob += expr == pulp.lpSum(nv * sel[nv] for nv in choices)
+                    if lo is not None: prob += expr >= lo
+                else:
+                    if lo is not None: prob += expr >= lo
+                    if hi is not None: prob += expr <= hi
+
+            # match mode: tol 0 forces paired stats to share a value; tol>0 (the '~'
+            # operator) lets them differ by at most `tol` points (|a - b| <= tol).
+            for a_stat, b_stat, tol in match:
+                if tol == 0:
+                    prob += exprs[a_stat] == exprs[b_stat]
+                else:
+                    prob += exprs[a_stat] - exprs[b_stat] <= tol
+                    prob += exprs[b_stat] - exprs[a_stat] <= tol
 
         # penalty is reported against constraints as actually enforced: rounding
         # and nice stats keep only their floor, so their dropped max isn't counted.
@@ -691,6 +702,12 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # All --maximize stats rank above all --minimize stats. Each entry is
         # (stat, sense) where sense=+1 maximizes, -1 minimizes. Skipped when both
         # lists are empty.
+        #
+        # Crucially this runs BEFORE apply_targets(): each stat is optimized over
+        # the structural build space only (block sizes, pawn, no-switcheroo,
+        # weight), so the bounds/divisor/nice/match targets cannot lower the peak.
+        # The optima are pinned, then the targets are applied -- a target that
+        # can't be met at the peak makes the start infeasible.
         lex_goals = [(s, +1) for s in maximize] + [(s, -1) for s in minimize]
         infeasible_start = False
         lex_opts = []   # the pinned optima, in priority order
@@ -708,6 +725,10 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                 prob += exprs[stat] <= opt   # pin minimized optimum
         if infeasible_start:
             continue  # this start vocation cannot satisfy the constraints
+
+        # Now impose the per-stat bounds / divisor / nice / match targets, ranked
+        # below the pinned maximize/minimize optima.
+        apply_targets()
 
         # --bias "equal-share floor then maximize": a single weighted-sum objective
         # is winner-take-all per range (e.g. assassin dominates attack and gives 0
@@ -878,11 +899,19 @@ def parse_args():
                          help="comma-separated stats to hard-maximize, highest\n"
                               "priority first, e.g. 'attack,defense' maxes attack\n"
                               "then maxes defense without giving up attack.\n"
+                              "the TOP priority: each is pushed to its global\n"
+                              "optimum FIRST (over the build structure only), then\n"
+                              "your min/max/divisor/match targets apply within it.\n"
+                              "a target that conflicts with the peak is INFEASIBLE,\n"
+                              "not silently lowered (--maximize attack --hp-min 3220\n"
+                              "is like --attack <max> --hp-min 3220).\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--minimize', type=str, default='', metavar='STATS',
                          help="comma-separated stats to hard-minimize, highest\n"
-                              "priority first (constraints still hold; ranked below\n"
-                              "--maximize, above the total stat sum)\n"
+                              "priority first. ranked below --maximize and above\n"
+                              "your min/max/match targets and the total stat sum,\n"
+                              "so like --maximize it can render targets infeasible\n"
+                              "rather than relaxing the minimized value.\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--equal-weights', action='store_true',
                          help="value hp/st equally with the other stats in the\n"

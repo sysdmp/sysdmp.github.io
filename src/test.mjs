@@ -134,8 +134,10 @@ for (const k of STATS) {
   check(`maximize ${k} reaches its known max (${MAXES[k]})`, r.stats[k] === MAXES[k],
         `got ${r.stats[k]}`);
 }
-// Compatible secondary settings ARE honored (as long as the max is still achieved):
-// maxing attack to 956 while also requiring defense >= 300 and biasing mattack.
+// Maximize is the TOP priority: it reaches the stat's GLOBAL max first, then the
+// other settings apply only among builds that still hit it. Compatible secondary
+// settings ARE honored (the max is unaffected): maxing attack to 956 while also
+// requiring defense >= 300 and biasing mattack.
 const honored = solveMaxTotal(highs, {
   maximize: 'attack',
   bounds: { defense: { min: 300 } },
@@ -145,11 +147,19 @@ check('maximize still hits the max', honored.stats.attack === MAXES.attack,
       `attack ${honored.stats.attack}`);
 check('maximize honors a compatible bound', honored.stats.defense >= 300,
       `defense ${honored.stats.defense}`);
-// A bound on the maximized stat itself is honored too (it's one of the settings),
-// so maximize tops out at the cap rather than the global max.
-const capped = solveMaxTotal(highs, { maximize: 'attack', bounds: { attack: { max: 500 } } });
-check('maximize honors a cap on the maximized stat', capped.stats.attack === 500,
-      `attack ${capped.stats.attack}`);
+// A bound that CONFLICTS with the global max is NOT honored by lowering the
+// maximized value — the max is pinned first, so the build is infeasible. (A cap
+// on the maximized stat below its global max can never be satisfied at the peak.)
+let cappedThrew = false;
+try { solveMaxTotal(highs, { maximize: 'attack', bounds: { attack: { max: 500 } } }); }
+catch { cappedThrew = true; }
+check('maximize + conflicting cap on the maximized stat is infeasible', cappedThrew);
+// Likewise a bound on another stat that can't be met at the peak is infeasible,
+// rather than settling for a lower maximized value.
+let conflictThrew = false;
+try { solveMaxTotal(highs, { maximize: 'attack', bounds: { mdefense: { min: 400 } } }); }
+catch { conflictThrew = true; }
+check('maximize + conflicting bound on another stat is infeasible', conflictThrew);
 // Among builds that hit the attack max, the mattack bias should still bend the
 // result: biasing mattack up shouldn't lower it vs. no bias.
 const noBias = solveMaxTotal(highs, { maximize: 'attack' });
