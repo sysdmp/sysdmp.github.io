@@ -97,7 +97,7 @@ check('LL adds the stamina delta to st',
       ll.stats.st === m.stats.st + (WEIGHT_BASE_ST.LL - WEIGHT_BASE_ST.M),
       `M ${m.stats.st} -> LL ${ll.stats.st}`);
 
-// 8. Bias.
+// 8. Bias — strong "equal-share floor then maximize" model (tier priority).
 const baseB = solveMaxTotal(highs);
 check('positive bias raises mattack',
       solveMaxTotal(highs, { bias: { mattack: 5 } }).stats.mattack > baseB.stats.mattack);
@@ -105,6 +105,27 @@ check('negative bias lowers hp',
       solveMaxTotal(highs, { bias: { hp: -5 } }).stats.hp < baseB.stats.hp);
 check('hard bound overrides negative bias',
       solveMaxTotal(highs, { bias: { hp: -5 }, bounds: { hp: { min: 4500 } } }).stats.hp >= 4500);
+// Tier priority: with attack tier 0 (value 3) and mattack tier 1 (value 1), attack's
+// gain over the unbiased build should be >= mattack's gain (earlier tier favored more).
+const tiered = solveMaxTotal(highs, { bias: { attack: 3, mattack: 1 } });
+const gA = tiered.stats.attack - baseB.stats.attack;
+const gM = tiered.stats.mattack - baseB.stats.mattack;
+check('bias tier priority: higher tier gains at least as much', gA >= gM && gA > 0,
+      `attack +${gA} vs mattack +${gM}`);
+// Equal values share a tier (equal share): both grow vs unbiased.
+const equalT = solveMaxTotal(highs, { bias: { attack: 4, mattack: 4 } });
+check('bias equal tier: both favored stats grow',
+      equalT.stats.attack > baseB.stats.attack && equalT.stats.mattack > baseB.stats.mattack,
+      `attack ${equalT.stats.attack}, mattack ${equalT.stats.mattack}`);
+// The strong floor is much stronger than the old soft nudge: a +5 attack bias should
+// drive attack well above the unbiased build (sanity that the floor actually bites).
+check('strong bias floor noticeably raises the favored stat',
+      solveMaxTotal(highs, { bias: { attack: 5 } }).stats.attack >= baseB.stats.attack + 100,
+      `attack ${baseB.stats.attack} -> ${solveMaxTotal(highs, { bias: { attack: 5 } }).stats.attack}`);
+// A bias floor must never violate a hard max bound (the bake is a floor, the bound a
+// ceiling): biasing attack up while capping it stays within the cap.
+check('bias floor respects a hard max',
+      solveMaxTotal(highs, { bias: { attack: 5 }, bounds: { attack: { max: 500 } } }).stats.attack <= 500);
 
 // 9. Pawn.
 const pawn = solveMaxTotal(highs, { pawn: true });

@@ -139,6 +139,13 @@ export const MAX_GAIN = (() => {
   return m;
 })();
 
+// --bias "equal-share floor then maximize" constants (mirror the Python prototype).
+// A biased stat in tier i gets BIAS_BOOST_BASE * BIAS_BOOST_FALLOFF**i added to its
+// objective weight (normalized by MAX_GAIN), and positively-biased stats get a hard
+// floor proportional to FALLOFF**i so they're guaranteed to grow — earlier tiers more.
+export const BIAS_BOOST_BASE = 10.0;
+export const BIAS_BOOST_FALLOFF = 0.5;
+
 // Final stats for a build: start vocation's init plus summed per-level gains.
 // counts is { to10: {voc:n}, to100: {...}, to200: {...} }. `baseSt`, when given,
 // overrides the level-1 stamina (weight class); otherwise the data default

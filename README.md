@@ -18,8 +18,9 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
 - **Match** — tie two stats: `=` equal, `~` within a tolerance (10 for combat
   pairs, 100 for hp↔st). hp/st pair only with each other; combat stats with any
   other combat stat.
-- **Bias** — soft per-stat preference (−5..+5); bends the build, never overrides
-  a bound.
+- **Bias** — per-stat priority (−5..+5): favored (+) stats are *guaranteed to grow*
+  via an equal-share floor (the Python prototype's model), the larger the value the
+  higher the tier; equal values share a tier. Never overrides a hard bound.
 - **Maximize** — make one stat the top priority (lexicographic): pushed to its
   global maximum first (over the structural build space — pool/pawn/weight/no-
   switcheroo only), then the rest of the settings apply within that maximum. A
@@ -162,11 +163,11 @@ npm run test:py
 DDDA_SEED=42 DDDA_FUZZ=30 npm run test:py   # replay a seed / set fuzz count
 ```
 
-Only **bias** is excluded from cross-validation — it diverges from the prototype
-on purpose (web uses a soft weight nudge, Python an equal-share floor). `--nice`
-is not ported. Everything else, including hp↔st `~` matches (tol 100 on both
-sides), no-early-switcheroo, per-vocation **require** minimums, and a forced
-**start-as** class, is cross-checked. See `src/bias-study.mjs` for a
-characterization of the bias difference.
+As of v1.0.0 the web and Python **bias** models are identical (both the equal-share
+floor then maximize), so bias is now cross-checked too — on the bias-weighted
+optimum. Everything is cross-validated: bounds, divisor, hp↔st `~` matches (tol 100
+on both sides), no-early-switcheroo, per-vocation **require** minimums, a forced
+**start-as** class, and **bias**. Only Python's `--nice` is excluded (not ported, and
+being retired). See `src/bias-study.mjs` for a per-case bias convergence check.
 
 

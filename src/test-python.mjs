@@ -7,16 +7,17 @@
 // What we compare: the optimal value of the objective, NOT the raw allocation —
 // many builds tie at the optimum, so allocations legitimately differ between
 // solvers. The comparable invariant is:
-//   * default / bounds / divisor / match(=) / weight / pawn  -> the BALANCED
-//     weighted stat score (hp,st weight 0.1; combat 1.0), which is unique.
+//   * default / bounds / divisor / match(=) / weight / pawn / require / start  ->
+//     the BALANCED weighted stat score (hp,st weight 0.1; combat 1.0), which is unique.
+//   * --bias  -> the BIAS-weighted (eff_weights) stat score, which both solvers now
+//     optimize identically after the same equal-share floor pre-pass.
 //   * --maximize STAT  -> the exact maximized stat value (its lexicographic top
 //     priority), which is also unique.
 //
-// Deliberately NOT cross-tested (the two implementations diverge on purpose):
-//   * bias   — Python uses an equal-share floor pre-pass; web a soft weight nudge.
-//   * --nice — excluded per request.
+// Deliberately NOT cross-tested (diverges on purpose):
+//   * --nice — excluded per request (and being removed from Python).
 // Combat-stat ~ matches use tolerance 10, the hp~st pair 100 — both match the
-// prototype now, so all ~ matches are cross-tested.
+// prototype. bias now uses the same model on both sides and IS cross-tested.
 //
 // Run: npm run test:py   (needs `uv` + the Python prototype in the repo root)
 
@@ -25,7 +26,13 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STATS, BALANCE_WEIGHTS } from './data.js';
-import { solveMaxTotal } from './solver.js';
+import { solveMaxTotal, biasTiersFromMap, biasRanks, effWeights } from './solver.js';
+
+// Bias-weighted score using the same eff_weights both solvers optimize.
+const effScore = (stats, bias) => {
+  const w = effWeights(biasRanks(biasTiersFromMap(bias ?? {})));
+  return STATS.reduce((a, k) => a + w[k] * stats[k], 0);
+};
 
 const require = createRequire(import.meta.url);
 // src/ sits at the repo root now; the Python prototype lives in pycli/.
@@ -65,6 +72,14 @@ function pyArgs(opts) {
     args.push('--require', Object.entries(opts.require).map(([v, n]) => `${v}=${n}`).join(','));
   }
   if (opts.startPool?.length === 1) args.push('--start-as', opts.startPool[0]);
+  // Bias: render the web {stat:int} map as Python's --bias tier string via the shared
+  // tier mapping — positive tiers (high→low) as `=`-joined groups, then negative tiers
+  // prefixed with `-`. Use the --bias=... form so a leading `-` survives argparse.
+  if (opts.bias && Object.keys(opts.bias).length) {
+    const segs = biasTiersFromMap(opts.bias).map(({ sign, stats }) =>
+      (sign < 0 ? '-' : '') + stats.join('='));
+    args.push(`--bias=${segs.join(',')}`);
+  }
   // hp/st are NOT discounted in the web "balanced" objective unless we ask Python
   // to match; the web default discounts them, so DON'T pass --equal-weights.
   return args;
@@ -129,6 +144,12 @@ function compare(label, opts) {
     const pv = py.vocs, wv = web.vocs;
     ok = pv === wv;
     detail = `distinct vocations: py ${pv} vs web ${wv}`;
+  } else if (opts.bias && Object.keys(opts.bias).length) {
+    // Bias: compare the eff_weights-weighted optimum (both sides optimize it after
+    // the same equal-share floor pre-pass). Allocations/favored values may tie.
+    const ps = effScore(py.stats, opts.bias), ws = effScore(web.stats, opts.bias);
+    ok = Math.abs(ps - ws) <= SCORE_TOL;
+    detail = `bias score py ${ps.toFixed(3)} vs web ${ws.toFixed(3)}`;
   } else {
     const ps = wScore(py.stats), ws = wScore(web.stats);
     ok = Math.abs(ps - ws) <= SCORE_TOL;
@@ -200,6 +221,13 @@ compare('start-as mage', { startPool: ['mage'] });
 compare('start-as strider + attack>=500', { startPool: ['strider'], bounds: { attack: { min: 500 } } });
 compare('start-as fighter + pawn', { startPool: ['fighter'], pawn: true });
 compare('start-as mage + require warrior=40', { startPool: ['mage'], require: { warrior: 40 } });
+compare('bias attack +3', { bias: { attack: 3 } });
+compare('bias attack=mattack tied +4', { bias: { attack: 4, mattack: 4 } });
+compare('bias tiered attack>mattack', { bias: { attack: 5, mattack: 2 } });
+compare('bias negative defense -3', { bias: { defense: -3 } });
+compare('bias mixed +attack -hp', { bias: { attack: 4, hp: -3 } });
+compare('bias + weight LL', { bias: { mattack: 5 }, weight: 'LL' });
+compare('bias + maximize attack (bias mattack)', { maximize: 'attack', bias: { mattack: 3 } });
 
 // ---------------------------------------------------------------------------
 // DYNAMIC suite — random cases each run (fuzz). Seeded for reproducibility:
@@ -255,6 +283,17 @@ for (let i = 0; i < N; i++) {
   if (!opts.maximize && rnd() < 0.25) opts.minimizeVocations = true;
   // no-early-switcheroo composes with everything (it just pins the 1->10 range).
   if (rnd() < 0.25) opts.noPre10Switch = true;
+  // Occasionally attach a random bias map — only when neither maximize nor minVoc is
+  // set, so the bias-weighted score is the comparison invariant (those take priority).
+  if (!opts.maximize && !opts.minimizeVocations && rnd() < 0.3) {
+    opts.bias = {};
+    const n = 1 + Math.floor(rnd() * 2);
+    for (let j = 0; j < n; j++) {
+      const k = pick(STATS);
+      const v = (1 + Math.floor(rnd() * 5)) * (rnd() < 0.7 ? 1 : -1); // ±1..5, mostly +
+      opts.bias[k] = v;
+    }
+  }
   compare(`fuzz#${i + 1} ${JSON.stringify(opts)}`, opts);
 }
 

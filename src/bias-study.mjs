@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Characterization study: how do the web and Python BIAS models compare?
 //
-// The two are different by design:
-//   - Python --bias: tiered "equal-share floor then maximize" pre-pass (strong).
-//   - Web bias:      a soft per-stat objective weight nudge (±n * 0.25 / MAX_GAIN).
-// So this is NOT a pass/fail cross-test — it measures *where and how much* they
-// diverge across 100+ builds, with "equivalent intent" inputs (favor the same
-// stat[s]). For each case we run Python's --bias and the web bias at several
-// strengths, and report agreement on the favored stat's value and the build.
+// As of the v1.0.0 bias port the two models are IDENTICAL (both use the tiered
+// "equal-share floor then maximize" pre-pass), so this is now a convergence check
+// rather than a divergence study — the web at its native strength should match
+// Python on the favored sum for equivalent inputs. The authoritative pass/fail
+// parity test lives in src/test-python.mjs (the eff_weights-weighted optimum); this
+// remains a human-readable per-case characterization.
 //
 // Run: node src/bias-study.mjs   (needs uv + the Python prototype)
 
@@ -30,7 +29,7 @@ const wScore = (s) => STATS.reduce((a, k) => a + BALANCE_WEIGHTS[k] * s[k], 0);
 
 // Python: --bias with the given comma string (e.g. "attack" or "attack=mattack").
 function pyBias(biasStr, extra = []) {
-  const out = execFileSync('uv', ['run', PY, '--no-default', '--bias', biasStr, ...extra, '--json'],
+  const out = execFileSync('uv', ['run', PY, `--bias=${biasStr}`, ...extra, '--json'],
     { cwd: PYDIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   return JSON.parse(out).builds[0].final_stats;
 }
