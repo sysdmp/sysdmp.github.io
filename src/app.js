@@ -727,6 +727,22 @@ function showQuote() {
 const solveBtn = $('solve');
 let highs = null; // HiGHS solver instance, set once the wasm loads
 
+// A solve attempt failed (invalid input or infeasible). Show the reason in the
+// status line, and if a build is currently displayed, mark it STALE — keep it
+// visible but greyed out with a banner, so it's clear it no longer matches the
+// current inputs (rather than silently leaving a fresh-looking old build).
+function solveFailed(msg) {
+  status.textContent = msg;
+  status.classList.add('err');
+  if ($('results').style.display === 'block') {
+    $('results').classList.add('stale');
+    const banner = $('stale-banner');
+    banner.textContent = `⚠ ${msg} — showing your previous build (no longer matches the inputs above).`;
+    banner.hidden = false;
+    if (quoteTimer) { clearInterval(quoteTimer); quoteTimer = null; } // stop rotating on a dead build
+  }
+}
+
 async function runSolve() {
   if (!highs) return;
   const allowed = selectedVocs();
@@ -737,20 +753,17 @@ async function runSolve() {
   const startPool = forced && allowed.includes(forced) ? [forced] : allowedBasics;
   status.classList.remove('err');
   if (startPool.length === 0) {
-    status.textContent = 'Pick at least one basic vocation (Fighter / Strider / Mage) as a start.';
-    status.classList.add('err');
+    solveFailed('Pick at least one basic vocation (Fighter / Strider / Mage) as a start.');
     return;
   }
   const { bounds, error } = collectBounds();
   if (error) {
-    status.textContent = error;
-    status.classList.add('err');
+    solveFailed(error);
     return;
   }
   const { require: requireVocs, error: requireError } = collectRequire();
   if (requireError) {
-    status.textContent = requireError;
-    status.classList.add('err');
+    solveFailed(requireError);
     return;
   }
   const weight = weightEl.value;
@@ -782,10 +795,11 @@ async function runSolve() {
     $('owoc-warn').hidden = weight === DEFAULT_WEIGHT;
     showQuote();
     $('results').style.display = 'block';
+    $('results').classList.remove('stale'); // fresh build: clear any stale dimming
+    $('stale-banner').hidden = true;
     status.textContent = `Solved in ${ms} ms.`;
   } catch (e) {
-    status.textContent = 'No solution: ' + e.message;
-    status.classList.add('err');
+    solveFailed('No solution: ' + e.message);
   } finally {
     solveBtn.disabled = false;
   }
@@ -835,6 +849,8 @@ function resetSelections() {
   // refresh dependent UI and clear the shared-state bits
   refreshAllCues();
   $('results').style.display = 'none';
+  $('results').classList.remove('stale'); // clear stale dimming on reset
+  $('stale-banner').hidden = true;
   if (quoteTimer) { clearInterval(quoteTimer); quoteTimer = null; } // results hidden; stop rotating
   history.replaceState(null, '', location.origin + location.pathname);
   status.classList.remove('err');

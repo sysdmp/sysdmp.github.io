@@ -218,6 +218,16 @@
   /* keep the popover from spilling off the right edge for right-aligned icons */
   .info-pop.flip-right { left: auto; right: 0; }
   #results { display: none; }
+  /* stale: the displayed build no longer matches the current inputs (last solve
+     failed/infeasible). Keep it visible but visibly inactive — dim the build
+     content while leaving the banner legible (opacity on the parent would dim the
+     banner too, since it multiplies through children, so dim the siblings instead). */
+  #results.stale > :not(.stale-banner) { opacity: .4; filter: grayscale(.7); }
+  .stale-banner {
+    background: var(--panel-2); border: 1px solid var(--red); border-radius: 7px;
+    color: var(--red); font-size: .85rem; padding: .5rem .7rem; margin: 0 0 1rem;
+  }
+  .stale-banner[hidden] { display: none; }
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
   /* NOTE: these were once class "share"/"share-row" — renamed to "cfglink" because
      ad/content blockers ship cosmetic filters that hide any element whose class
@@ -298,6 +308,7 @@
   </div>
 
   <div class="panel" id="results">
+    <p class="stale-banner" id="stale-banner" hidden></p>
     <h2 id="result-head">Best build</h2>
     <div class="weight-info" id="weight-info"></div>
     <div class="two">
