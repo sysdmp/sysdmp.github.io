@@ -1,7 +1,6 @@
 {
   "command": {
     "argv": [
-      "--no-default",
       "--pawn",
       "--attack",
       "700",
@@ -17,7 +16,7 @@
       "m",
       "--json"
     ],
-    "line": "ddda-build-solver.py --no-default --pawn --attack 700 --mdefense 300 --mattack 300 --hp 4000 --st 4000 --weight m --json"
+    "line": "ddda-build-solver.py --pawn --attack 700 --mdefense 300 --mattack 300 --hp 4000 --st 4000 --weight m --json"
   },
   "weight": {
     "class": "M",
@@ -79,6 +78,8 @@
     "assassin",
     "marcher"
   ],
+  "start_as": null,
+  "require": {},
   "bias": [],
   "bias_tiers": [],
   "maximize": [],
@@ -86,7 +87,7 @@
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.057,
+  "solve_time_sec": 0.054,
   "builds": [
     {
       "penalty": 0.0,

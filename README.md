@@ -165,7 +165,8 @@ DDDA_SEED=42 DDDA_FUZZ=30 npm run test:py   # replay a seed / set fuzz count
 Only **bias** is excluded from cross-validation — it diverges from the prototype
 on purpose (web uses a soft weight nudge, Python an equal-share floor). `--nice`
 is not ported. Everything else, including hp↔st `~` matches (tol 100 on both
-sides) and no-early-switcheroo, is cross-checked. See `src/bias-study.mjs` for a
+sides), no-early-switcheroo, per-vocation **require** minimums, and a forced
+**start-as** class, is cross-checked. See `src/bias-study.mjs` for a
 characterization of the bias difference.
 
 

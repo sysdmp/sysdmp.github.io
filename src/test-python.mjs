@@ -40,7 +40,9 @@ const wScore = (stats) => STATS.reduce((a, k) => a + BALANCE_WEIGHTS[k] * stats[
 
 // --- translate a web-style opts object into Python CLI flags ---------------
 function pyArgs(opts) {
-  const args = ['--no-default'];
+  // Neither side applies default stat floors anymore, so no --no-default needed:
+  // both solve fully unconstrained unless the opts say otherwise.
+  const args = [];
   for (const k of STATS) {
     const b = opts.bounds?.[k];
     if (!b) continue;
@@ -59,6 +61,10 @@ function pyArgs(opts) {
   if (opts.noPre10Switch) args.push('--no-early-switcheroo');
   if (opts.pawn) args.push('--pawn');
   if (opts.weight) args.push('--weight', opts.weight);
+  if (opts.require && Object.keys(opts.require).length) {
+    args.push('--require', Object.entries(opts.require).map(([v, n]) => `${v}=${n}`).join(','));
+  }
+  if (opts.startPool?.length === 1) args.push('--start-as', opts.startPool[0]);
   // hp/st are NOT discounted in the web "balanced" objective unless we ask Python
   // to match; the web default discounts them, so DON'T pass --equal-weights.
   return args;
@@ -135,6 +141,20 @@ function compare(label, opts) {
     if (b?.max != null && b.divisor == null && web.stats[k] > b.max) { ok = false; detail += ` [web ${k}>max]`; }
     if (b?.divisor != null && web.stats[k] % b.divisor !== 0) { ok = false; detail += ` [web ${k}∤${b.divisor}]`; }
   }
+  // 3b. require / start are structural: both solvers must honor them. Re-solve the
+  //     web side for its counts (runWeb returns only stats) to assert the to100
+  //     minimums and the forced start.
+  if ((opts.require && Object.keys(opts.require).length) || opts.startPool?.length === 1) {
+    try {
+      const wb = solveMaxTotal(highs, opts);
+      for (const [v, n] of Object.entries(opts.require ?? {})) {
+        if ((wb.counts.to100[v] ?? 0) < n) { ok = false; detail += ` [web ${v} to100<${n}]`; }
+      }
+      if (opts.startPool?.length === 1 && wb.start !== opts.startPool[0]) {
+        ok = false; detail += ` [web start ${wb.start}≠${opts.startPool[0]}]`;
+      }
+    } catch { /* infeasible already handled above */ }
+  }
   console.log(`${ok ? 'ok  ' : 'FAIL'} - ${label}: ${detail}`);
   if (!ok) failures++;
 }
@@ -172,6 +192,14 @@ compare('no-early-switcheroo', { noPre10Switch: true });
 compare('no-early-switcheroo + mattack>=400', { noPre10Switch: true, bounds: { mattack: { min: 400 } } });
 compare('no-early-switcheroo + maximize mattack', { noPre10Switch: true, maximize: 'mattack' });
 compare('no-early-switcheroo + weight LL', { noPre10Switch: true, weight: 'LL' });
+compare('require warrior=40', { require: { warrior: 40 } });
+compare('require warrior=40,sorcerer=10', { require: { warrior: 40, sorcerer: 10 } });
+compare('require infeasible (sum>90)', { require: { warrior: 60, sorcerer: 50 } });
+compare('require + maximize mattack', { maximize: 'mattack', require: { warrior: 30 } });
+compare('start-as mage', { startPool: ['mage'] });
+compare('start-as strider + attack>=500', { startPool: ['strider'], bounds: { attack: { min: 500 } } });
+compare('start-as fighter + pawn', { startPool: ['fighter'], pawn: true });
+compare('start-as mage + require warrior=40', { startPool: ['mage'], require: { warrior: 40 } });
 
 // ---------------------------------------------------------------------------
 // DYNAMIC suite — random cases each run (fuzz). Seeded for reproducibility:

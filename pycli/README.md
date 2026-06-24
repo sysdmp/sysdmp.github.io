@@ -73,8 +73,8 @@ first use. If you prefer to run with a plain `python3`, install PuLP yourself
 
 ## Quick start
 
-Run with no arguments to solve for the built-in default targets (hp ≥ 3500,
-defense/mdefense ≥ 300; st/attack/mattack unconstrained):
+Run with no arguments to solve the balanced objective with no stat constraints at
+all (every stat unconstrained):
 
 ```console
 $ uv run ddda-build-solver.py
@@ -104,29 +104,29 @@ found 1 build(s):
 ====================================================
  build 1   [OK] all requirements met
 ====================================================
-               leveling plan
-+----------+--------+-----------------------+
-| range    | levels | vocations             |
-+----------+--------+-----------------------+
-| start    |      - | fighter               |
-| 1->10    |      9 | mage x9               |
-| 10->100  |     90 | fighter x90           |
-| 100->200 |    100 | mage x62  warrior x38 |
-+----------+--------+-----------------------+
+          leveling plan
++----------+--------+--------------+
+| range    | levels | vocations    |
++----------+--------+--------------+
+| start    |      - | fighter      |
+| 1->10    |      9 | mage x9      |
+| 10->100  |     90 | fighter x90  |
+| 100->200 |    100 | warrior x100 |
++----------+--------+--------------+
  ⚠  changing vocation before level 10:
     to do it, restart the game in Hard Mode — this resets save
     progress, but the character keeps its levels and items.
- vocation switches: 3 (4 leveling blocks across the 3 ranges)
+ vocation switches: 2 (3 leveling blocks across the 3 ranges)
                       final stats
 +--------------+-------+---------------------------------+
 | stat         | value | details                         |
 +--------------+-------+---------------------------------+
-| hp           |  4788 | >=3500                          |
-| st           |  3260 | -                               |
-| attack       |   534 | -                               |
-| defense      |   543 | >=300                           |
-| mattack      |   400 | -                               |
-| mdefense     |   301 | >=300                           |
+| hp           |  4478 | -                               |
+| st           |  3570 | -                               |
+| attack       |   658 | -                               |
+| defense      |   667 | -                               |
+| mattack      |   276 | -                               |
+| mdefense     |   177 | -                               |
 | ---          |   --- | ---                             |
 | combat       |  1778 | attack+mattack+defense+mdefense |
 | vitals       |  8048 | hp + st                         |
@@ -137,7 +137,7 @@ found 1 build(s):
 | st regen     |  42/s | 100% of M                       |
 | encumbrance  |  65kg | base maximum encumbrance        |
 +--------------+-------+---------------------------------+
- owoc planner: https://owoc.github.io/#af...
+ owoc planner: https://owoc.github.io/#af5a0000000000000000000000640000000000000009
 ```
 
 Pass `--json` for machine-readable output instead (see [Output control](#output-control)).
@@ -156,11 +156,8 @@ For each of the six stats (`hp`, `st`, `attack`, `defense`, `mattack`, `mdefense
 | `--<stat>-min N` | Lower bound (floor).                                           |
 | `--<stat>-max N` | Upper bound (ceiling).                                         |
 
-Omit a bound to leave it unconstrained. Defaults: `hp` min 3500, `defense`/`mdefense`
-min 300; `st`/`attack`/`mattack` unconstrained, no maximums.
-
-`--no-default` ignores the built-in default minimums entirely — only the constraints
-you pass explicitly apply.
+Omit a bound to leave it unconstrained. There are no built-in default floors — a stat
+with no `--<stat>`/`--<stat>-min`/`--<stat>-max` is fully unconstrained.
 
 ### ILP-only goals
 
@@ -185,6 +182,7 @@ its min as a floor. A stat may be either divisor-rounded or `nice`, not both, an
 | `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. The **top** priority — each stat is driven to its **global** optimum over the build structure (pool/pawn/weight/no-switcheroo) *first*, with your `--STAT`/`--STAT-min`/`--STAT-max`/`--divisor`/`--match` targets applied only **within** that optimum. A target that conflicts with the peak is **infeasible**, not silently relaxed: `--maximize attack --hp-min 3220` behaves like `--attack <max> --hp-min 3220`. Sits above the total-stat objective. |
 | `--minimize STATS`      | Comma-separated stats to **hard-minimize**, highest priority first. Ranked below `--maximize` and above your per-stat targets and the total-stat objective — so, like `--maximize`, it can render a conflicting target infeasible rather than relaxing the minimized value. |
 | `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the maximize/minimize/total objective. |
+| `--require SPEC`        | Force vocations to take at least N of the 90 **level-10→100** levels each, as comma-separated `voc=N` segments: `--require warrior=40,sorcerer=10` (each N 1–90; the minimums must total ≤ 90). A **hard, structural** constraint (holds under `--maximize` too); a required vocation is implicitly allowed (rejected if it's been `--avoid`ed/pawn-excluded). |
 | `--equal-weights`       | Value **hp/st equally** with the other stats in the balanced objective (by default they're discounted — see below). |
 
 **Group keywords** — anywhere a `STATS` list is accepted (`--divisor`, `--nice`, `--bias`,
@@ -205,6 +203,7 @@ balanced build from piling level-ups into them at the expense of combat stats. P
 |------------------|-------------------------------------------------------------------------|
 | `--weight CLASS` | Weight class, which sets base stamina, stamina-regen rate, and max encumbrance. One of `SS`, `S`, `M`, `L`, `LL` (default `M`); case-insensitive. |
 | `--avoid VOCS`   | Comma-separated vocations to drop from consideration entirely (never leveled in any range, and excluded as a start vocation). |
+| `--start-as VOC` | Force the starting (level-1) vocation to one basic: `fighter`, `strider`, or `mage`. By default the solver picks the best-scoring start among the allowed basics. Honored by both solvers. |
 | `--pawn`         | Build for a pawn: excludes `mknight,marcher,assassin` (as `--avoid`), **and** enforces the pawn 1→10 rule (see below). |
 | `--no-early-switcheroo` | Forbid changing vocation before level 10: all nine 1→10 levels stay in the start vocation (no Hard Mode restart trick). Honored by both solvers. |
 
@@ -294,7 +293,7 @@ $ ddda-build-solver.py --import build.json      # same tables, plus the original
 ## Examples
 
 ```console
-# Minimum HP and stamina, everything else default
+# Minimum HP and stamina, everything else unconstrained
 $ ddda-build-solver.py --hp-min 3600 --st-min 4000
 
 # Pin attack to an exact value, output 3 distinct builds
@@ -311,6 +310,9 @@ $ ddda-build-solver.py --pawn
 
 # Exclude specific vocations from consideration
 $ ddda-build-solver.py --avoid sorcerer,assassin
+
+# Force the start as Mage, and require 40 of the 10->100 levels in Warrior
+$ ddda-build-solver.py --start-as mage --require warrior=40
 
 # Heavy character, "nice" HP, machine-readable output
 $ ddda-build-solver.py --weight LL --nice hp --json

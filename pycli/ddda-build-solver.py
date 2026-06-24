@@ -212,17 +212,6 @@ PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
 # values; combat pairs are tighter.
 MATCH_TILDE_TOLERANCE = 10
 MATCH_TILDE_TOLERANCE_VITALS = 100
-# Built-in default (min, max) per stat, applied unless --no-default is given.
-# Matches the web version's defaults: a floor on hp and the two defenses only;
-# st/attack/mattack are left unconstrained by default.
-STAT_DEFAULTS = {
-    'hp':       (3500, None),
-    'st':       (None, None),
-    'attack':   (None, None),
-    'defense':  (300,  None),
-    'mattack':  (None, None),
-    'mdefense': (300,  None),
-}
 # Per-stat weight used by the balanced (default) objective's total-stat sum.
 # hp/st have much larger raw magnitudes than the combat stats and grow more
 # cheaply, so weighting them below 1 keeps the balanced build from dumping all
@@ -486,7 +475,8 @@ def _stat_upper_bound(k, base, adv_pool=ALL, basic_pool=BASIC):
 def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
               minimize_vocations=False, base_st=None, allowed=None,
               maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None,
-              verbose=False, time_limit=5, pawn=False, no_early_switch=False):
+              verbose=False, time_limit=5, pawn=False, no_early_switch=False,
+              require=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
     (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
@@ -567,6 +557,9 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         return any(v.value() is not None for v in prob.variables())
     rounding = dict(rounding or {})
     nice = set(nice)
+    # Required vocations { voc: min levels in to100 }; keep only those in the pool
+    # (a require not in the pool would bound a nonexistent var). Each min clamped 1..90.
+    require = {v: max(1, min(90, int(n))) for v, n in (require or {}).items() if v in (allowed if allowed is not None else ALL)}
     weights = weights if weights is not None else BALANCE_WEIGHTS
     adv_pool = list(allowed) if allowed is not None else ALL
     starts = list(start_pool) if start_pool is not None else BASIC
@@ -604,6 +597,13 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # all nine 1->10 levels stay in the start vocation. (Subsumes the pawn >=1.)
         if no_early_switch:
             prob += x10[start] == 9
+
+        # Required vocations: each takes >= its minimum of the 90 level-10->100 levels.
+        # Structural (applied here, before the maximize lex pre-pass / apply_targets),
+        # so it holds under --maximize too. A sum of minimums > 90 is infeasible via
+        # the block-size constraint above (validated up front in main for a clear msg).
+        for v, n in require.items():
+            prob += x100[v] >= n
 
         # each stat's final value as a linear expression
         exprs = {}
@@ -835,16 +835,15 @@ def parse_args():
 
     g_stats = ap.add_argument_group(c('\U0001f3af  stat targets', 'bold'),
         "Per stat: --STAT pins an exact value; --STAT-min / --STAT-max set bounds.\n"
-        "An exact value overrides that stat's min/max. Built-in default minimums\n"
-        "apply unless overridden or --no-default is given.")
+        "An exact value overrides that stat's min/max. A stat with no bound is left\n"
+        "unconstrained.")
     for stat in STATS:
-        lo, hi = STAT_DEFAULTS[stat]
         g_stats.add_argument(f'--{stat}', type=int, default=None, metavar='N',
                              help=f'exact {stat} (overrides --{stat}-min/--{stat}-max)')
         g_stats.add_argument(f'--{stat}-min', type=int, default=None, metavar='N',
-                             help=f'minimum {stat} (default: {lo if lo is not None else "none"})')
+                             help=f'minimum {stat}')
         g_stats.add_argument(f'--{stat}-max', type=int, default=None, metavar='N',
-                             help=f'maximum {stat} (default: {hi if hi is not None else "none"})')
+                             help=f'maximum {stat}')
     # Accept British-spelling aliases for the same stat (e.g. --defence -> defense),
     # writing to the canonical dest so the rest of main() is unaffected.
     for alias, canon in STAT_ALIASES.items():
@@ -854,9 +853,6 @@ def parse_args():
                              default=None, metavar='N', help=argparse.SUPPRESS)
         g_stats.add_argument(f'--{alias}-max', dest=f'{canon}_max', type=int,
                              default=None, metavar='N', help=argparse.SUPPRESS)
-    g_stats.add_argument('--no-default', action='store_true',
-                         help='ignore the built-in default stat minimums;\n'
-                              'only constraints you pass explicitly apply')
 
     g_goals = ap.add_argument_group(c('\U00002728  ILP-only goals', 'bold'),
         "Extra constraints honored only by the exact (ILP) solver.")
@@ -885,6 +881,13 @@ def parse_args():
     g_goals.add_argument('--minimize-vocations', action='store_true',
                          help="prefer feasible builds that use fewer distinct\n"
                               "vocations (fewer vocation changes)")
+    g_goals.add_argument('--require', type=str, default='', metavar='SPEC',
+                         help="force vocations to take at least N of the 90 level-\n"
+                              "10->100 levels each, as comma-separated 'voc=N'\n"
+                              "segments: --require warrior=40,sorcerer=10\n"
+                              "(each N 1..90; the minimums must total <=90). a\n"
+                              "required vocation is also allowed. vocations:\n"
+                              + ', '.join(ALL))
     g_goals.add_argument('--bias', type=str, default='', metavar='STATS',
                          help="comma-separated priority tiers of stats to softly\n"
                               "favor in the objective; the first tier gets the\n"
@@ -926,6 +929,12 @@ def parse_args():
                         help="comma-separated vocations to drop from consideration\n"
                              "(not leveled in any range). vocations:\n"
                              + ', '.join(ALL))
+    g_char.add_argument('--start-as', dest='start_as', type=str, default='',
+                        metavar='VOC', choices=['', *BASIC],
+                        help="force the starting (level-1) vocation to one basic:\n"
+                             + '/'.join(BASIC) + ".\nby default the solver picks the "
+                             "best-scoring start\namong the allowed basics. Honored by "
+                             "both solvers.")
     g_char.add_argument('--pawn', action='store_true',
                         help="build for a pawn: excludes " + ','.join(PAWN_EXCLUDED) +
                              "\n(like --avoid), and enforces the pawn 1->10 rule\n"
@@ -1457,8 +1466,8 @@ def main():
         sys.exit(render_imported(doc))
 
     # Build per-stat (min, max) bounds. An exact value (--<stat>) pins both,
-    # overriding --<stat>-min/-max. Otherwise use any explicit bounds the user
-    # gave, falling back to the built-in default (unless --no-default).
+    # overriding --<stat>-min/-max. Otherwise use whatever explicit bounds the user
+    # gave; a stat with neither is left unconstrained (no built-in default floors).
     cons = {}
     exact = []
     for k in STATS:
@@ -1467,12 +1476,7 @@ def main():
             cons[k] = (ev, ev)
             exact.append(k)
             continue
-        umin = getattr(a, f'{k}_min')
-        umax = getattr(a, f'{k}_max')
-        dlo, dhi = STAT_DEFAULTS[k]
-        lo = umin if umin is not None else (None if a.no_default else dlo)
-        hi = umax if umax is not None else (None if a.no_default else dhi)
-        cons[k] = (lo, hi)
+        cons[k] = (getattr(a, f'{k}_min'), getattr(a, f'{k}_max'))
     count = max(1, a.count)
 
     def fail(msg):
@@ -1653,6 +1657,44 @@ def main():
     allowed = [v for v in ALL if v not in avoid]
     start_pool = [v for v in BASIC if v not in avoid]
 
+    # --start-as: force the level-1 vocation to one basic. It must be a basic that
+    # survived --avoid (a required/forced start is implicitly allowed). Pins the
+    # start pool to that single vocation; honored by both solvers.
+    if a.start_as:
+        if a.start_as not in start_pool:
+            fail(f"--start-as {a.start_as} is not an available basic start "
+                 f"(it may be excluded by --avoid/--pawn); choices: {','.join(start_pool)}")
+            return
+        start_pool = [a.start_as]
+
+    # --require: per-vocation minimum levels in the 10->100 range, as 'voc=N' segments.
+    # Each voc must be in the allowed pool (a require implies allow, so we reject one
+    # that's been avoided/pawn-excluded rather than silently dropping it); each N is
+    # 1..90 and the minimums must total <=90 (the 10->100 range is 90 levels).
+    require = {}   # {voc: int min levels in to100}
+    req_raw = a.require.strip()
+    if req_raw:
+        for seg in (p.strip() for p in req_raw.split(',') if p.strip()):
+            if seg.count('=') != 1:
+                fail(f"bad --require segment '{seg}'; expected 'voc=N'")
+                return
+            vname, nstr = (x.strip() for x in seg.split('='))
+            if vname not in ALL:
+                fail(f"unknown vocation in --require: '{vname}'; choices: {','.join(ALL)}")
+                return
+            if vname not in allowed:
+                fail(f"--require {vname}: that vocation is excluded "
+                     "(by --avoid/--pawn); can't require an excluded vocation")
+                return
+            if not nstr.isdigit() or not (1 <= int(nstr) <= 90):
+                fail(f"--require {vname} must be a whole number from 1 to 90, got '{nstr}'")
+                return
+            require[vname] = int(nstr)
+        if sum(require.values()) > 90:
+            fail(f"--require minimums total {sum(require.values())}, but only 90 "
+                 "levels are available (10->100); lower them to sum to 90 or less")
+            return
+
     # Shared JSON context: the exact command line plus every solve input, so a
     # saved --json document is self-describing and can be re-rendered (and the
     # original invocation reproduced) via --import without re-solving. Merged
@@ -1678,6 +1720,8 @@ def main():
         "pawn": a.pawn,
         "no_early_switcheroo": a.no_early_switcheroo,
         "avoided_vocations": [v for v in ALL if v in avoid],
+        "start_as": a.start_as or None,
+        "require": require,
         "bias": bias,
         "bias_tiers": [{"sign": sign, "stats": tier} for sign, tier in bias_tiers],
         "maximize": maximize,
@@ -1713,7 +1757,7 @@ def main():
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
                            start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
                            time_limit=None if a.posixly_correct else 5, pawn=a.pawn,
-                           no_early_switch=a.no_early_switcheroo)
+                           no_early_switch=a.no_early_switcheroo, require=require)
         solve_time = time.perf_counter() - _t0
         if not builds:
             if a.json:
@@ -1737,7 +1781,7 @@ def main():
     else:
         if not a.json:
             ilp_only = [('--divisor', a.divisor), ('--nice', a.nice), ('--match', a.match),
-                        ('--minimize-vocations', a.minimize_vocations),
+                        ('--minimize-vocations', a.minimize_vocations), ('--require', a.require),
                         ('--bias', a.bias), ('--maximize', a.maximize), ('--minimize', a.minimize)]
             for flag, val in ilp_only:
                 if val:
