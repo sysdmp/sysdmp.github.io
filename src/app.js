@@ -275,16 +275,25 @@ for (const k of STATS) {
   rangesEl.append(name, mk('min'), mk('max'), mk('divisor'), bias, matchSel);
 }
 
-// Visual cues: a stat's min/max go green when equal and set (exact-value
-// request); a set divisor field is highlighted gold. A divisor ignores the max,
-// so the exact cue is suppressed when a divisor is present.
+// Visual cues: a stat's min/max go green when equal and set (exact-value request);
+// a set divisor field is highlighted gold. An exact value pins the stat outright, so
+// the divisor and bias controls can't apply — disable (grey) them while exact. (The
+// divisor previously overrode an exact min=max; now exact wins and suppresses it.)
+// Skip the maximized stat: updateMaximizeCue already disables its whole row, and we
+// must not re-enable those fields here.
 function updateExactCues() {
+  const maxStat = maximizeEl.value;
   for (const k of STATS) {
     const [mn, mx, dv] = statInputs(k);
-    const hasDiv = dv.value !== '';
-    const exact = !hasDiv && mn.value !== '' && mn.value === mx.value;
+    const exact = mn.value !== '' && mn.value === mx.value;
     mn.classList.toggle('exact', exact);
     mx.classList.toggle('exact', exact);
+    const bias = biasSelect(k);
+    if (k !== maxStat) { // maximized row stays disabled via updateMaximizeCue
+      dv.disabled = exact;
+      bias.disabled = exact;
+    }
+    const hasDiv = !dv.disabled && dv.value !== '';
     dv.classList.toggle('div-on', hasDiv);
   }
 }
@@ -317,20 +326,24 @@ function updateMaximizeCue() {
     for (const el of [...statInputs(k), biasSelect(k), matchSelect(k)]) el.disabled = off;
     rangesEl.querySelector(`.rname[data-stat="${k}"]`)?.classList.toggle('maxed', off);
   }
+  // Re-apply the exact-value disable: a row we just un-maximized may itself be exact,
+  // in which case its divisor/bias must stay disabled rather than be re-enabled above.
+  updateExactCues();
 }
 maximizeEl.addEventListener('change', updateMaximizeCue);
 
 // Re-sync every visual cue + dependent control to the current field values.
-// Used after bulk changes (URL restore, reset).
+// Used after bulk changes (URL restore, reset). updateExactCues runs LAST (it owns
+// the divisor/bias disabled-state for exact stats, and must win over the blanket
+// enable/disable in updateMaximizeCue).
 function refreshAllCues() {
-  updateExactCues();
   for (const k of STATS) {
     biasSelect(k).dispatchEvent(new Event('change'));
     matchSelect(k).dispatchEvent(new Event('change'));
   }
   updatePawnUI();
   updateWeightInfo();
-  updateMaximizeCue();
+  updateMaximizeCue(); // calls updateExactCues() at its end
 }
 
 // Color a match select green once a partner is chosen.
@@ -421,7 +434,9 @@ function collectBounds() {
     if (mn.disabled) continue; // maximized stat: its own bounds/divisor can't apply
     const min = mn.value === '' ? null : Number(mn.value);
     const max = mx.value === '' ? null : Number(mx.value);
-    const divisor = dv.value === '' ? null : Number(dv.value);
+    // An exact (min=max) request disables the divisor field; ignore any stale value
+    // left in it so the pinned exact value wins instead of the divisor overriding.
+    const divisor = (dv.disabled || dv.value === '') ? null : Number(dv.value);
     const cap = STAT_MAX[k];
     if (min != null && (!Number.isInteger(min) || min < 0))
       return { error: `${STAT_LABEL[k]} min must be a non-negative whole number.` };
