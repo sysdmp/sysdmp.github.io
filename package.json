@@ -1,6 +1,6 @@
 {
   "name": "ddda-build-solver-web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Browser MILP solver for Dragon's Dogma: Dark Arisen level-200 builds (uses HiGHS/WASM).",
   "license": "MIT",
   "type": "module",
