@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import {
   STATS, BASIC, ALL, growth, statsOf, TIER_SIZE, WEIGHT_BASE_ST, BALANCE_WEIGHTS,
 } from './data.js';
-import { solveMaxTotal } from './solver.js';
+import { solveMaxTotal, enumerateSameStats } from './solver.js';
 
 const require = createRequire(import.meta.url);
 const highsLoader = require('highs');
@@ -250,6 +250,27 @@ const startPawn = solveMaxTotal(highs, { startPool: ['fighter'], pawn: true });
 check('forced start + pawn: start has >=1 in 1->10',
       startPawn.start === 'fighter' && (startPawn.counts.to10.fighter ?? 0) >= 1,
       `to10 fighter ${startPawn.counts.to10.fighter ?? 0}`);
+
+// 15. enumerateSameStats — alternatives all hit the exact same stats, distinct allocations.
+// Most balanced-optimal builds have a unique allocation, but many constrained targets
+// are reachable many ways; defense=496 is one with 50+ equivalent allocations.
+const seedOpts = { bounds: { defense: { min: 496, max: 496 } } };
+const seed = solveMaxTotal(highs, seedOpts);
+const { builds: alts, capped } = enumerateSameStats(highs, seedOpts, seed.stats, 50);
+check('enumerateSameStats finds multiple same-stat allocations', alts.length > 1, `${alts.length} builds`);
+check('every alternative has the exact same stats',
+      alts.every((b) => STATS.every((k) => b.stats[k] === seed.stats[k])),
+      `${alts.length} builds checked`);
+const allocKey = (b) => b.start + '|' + ['to10', 'to100', 'to200']
+  .map((t) => Object.entries(b.counts[t] || {}).sort().map(([v, n]) => `${v}:${n}`).join(',')).join('|');
+check('alternatives are all distinct allocations',
+      new Set(alts.map(allocKey)).size === alts.length, `${alts.length} unique`);
+check('enumerateSameStats honors the cap (50 -> capped here)',
+      alts.length <= 50 && capped, `${alts.length}, capped=${capped}`);
+// A uniquely-reachable build returns just itself.
+const uniq = solveMaxTotal(highs, {});
+const uniqAlts = enumerateSameStats(highs, {}, uniq.stats, 50).builds;
+check('uniquely-reachable build returns exactly one', uniqAlts.length === 1, `${uniqAlts.length}`);
 
 console.log(`\n${failures ? failures + ' failure(s)' : 'all tests passed'}`);
 process.exit(failures ? 1 : 0);

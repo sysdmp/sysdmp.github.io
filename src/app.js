@@ -4,11 +4,11 @@
 // lives in src/; `make` bundles it into a single self-contained index.html.
 
 import { loadHighs } from './highs-loader.js';
-import { solveMaxTotal } from './solver.js';
+import { solveMaxTotal, enumerateSameStats } from './solver.js';
 import {
   BASIC, ALL, STATS, WEIGHT_CLASSES, WEIGHT_BASE_ST, DEFAULT_WEIGHT,
   WEIGHT_RANGE, WEIGHT_STAREGEN, WEIGHT_ENCUMBRANCE,
-  COMBAT, VITALS, MATCH_TILDE_TOL, MATCH_PARTNERS, STAT_MAX, owocUrl, QUOTES,
+  COMBAT, VITALS, MATCH_TILDE_TOL, MATCH_PARTNERS, STAT_MAX, owocUrl, QUOTES, statsOf,
 } from './data.js';
 
 // Display labels (the data uses terse keys).
@@ -519,6 +519,8 @@ function collectBounds() {
 //   max  = the single stat to maximize (ignores all other settings)
 //   req  = CSV of "voc:minLevels" pairs (each voc takes >= minLevels of the 90
 //          level-10->100 levels), e.g. "warrior:40,sorcerer:10"
+//   b    = the displayed build's exact allocation (start + per-vocation level
+//          counts); when present, that exact build is shown on load (see decodeAlloc)
 // Stat keys are the canonical short names (hp, st, attack, ...).
 
 // Read the form into URLSearchParams (only non-default values).
@@ -609,9 +611,46 @@ function applySelections(params) {
   return true;
 }
 
-// Build the absolute share URL for the current selections and show it.
-function showShareUrl() {
+// Encode a build's exact allocation into a compact string for the share URL's `b=`
+// param: start letter + 2-hex level count per vocation, per tier (ALL order; to10
+// only basics). Mirrors the owoc layout but is our own, decoded by decodeAlloc.
+function encodeAlloc(build) {
+  const hb = (n) => (n & 0xff).toString(16).padStart(2, '0');
+  const { start, counts } = build;
+  const s = { fighter: 'f', strider: 's', mage: 'm' }[start];
+  const to100 = ALL.map((v) => hb(counts.to100[v] || 0)).join('');
+  const to200 = ALL.map((v) => hb(counts.to200[v] || 0)).join('');
+  const to10 = BASIC.map((v) => hb(counts.to10[v] || 0)).join('');
+  return s + to100 + to200 + to10;
+}
+
+// Parse a `b=` allocation string back into { start, counts } (or null if malformed).
+function decodeAlloc(str) {
+  const START = { f: 'fighter', s: 'strider', m: 'mage' };
+  const start = START[str?.[0]];
+  const expected = 1 + (ALL.length * 2) * 2 + BASIC.length * 2;
+  if (!start || str.length !== expected) return null;
+  let i = 1;
+  const readTier = (vocs) => {
+    const out = {};
+    for (const v of vocs) {
+      const n = parseInt(str.slice(i, i + 2), 16);
+      i += 2;
+      if (Number.isNaN(n)) return null;
+      if (n > 0) out[v] = n;
+    }
+    return out;
+  };
+  const to100 = readTier(ALL), to200 = readTier(ALL), to10 = readTier(BASIC);
+  if (!to100 || !to200 || !to10) return null;
+  return { start, counts: { to10, to100, to200 } };
+}
+
+// Build the absolute share URL for the current selections (+ the displayed build's
+// exact allocation as `b=`) and show it. Pass the build being displayed.
+function showShareUrl(build) {
   const params = encodeSelections();
+  if (build) params.set('b', encodeAlloc(build));
   const qs = params.toString();
   const url = location.origin + location.pathname + (qs ? '?' + qs : '');
   $('cfg-url').value = url;
@@ -739,11 +778,43 @@ function solveFailed(msg) {
     const banner = $('stale-banner');
     banner.textContent = `⚠ ${msg} — showing your previous build (no longer matches the inputs above).`;
     banner.hidden = false;
+    $('alts').hidden = true; // the stale build's alternatives no longer apply
     if (quoteTimer) { clearInterval(quoteTimer); quoteTimer = null; } // stop rotating on a dead build
   }
 }
 
-async function runSolve() {
+// --- alternative builds (same exact stats, different vocation allocation) ---
+// altBuilds[0] is the displayed solve; the rest come from enumerateSameStats. altCtx
+// carries the per-solve render context (weight/kind/goal/bounds) reused on each cycle.
+let altBuilds = [], altIndex = 0, altCapped = false, altCtx = null;
+
+// Render one build into the results panel: heading, plan, owoc link, share URL, and
+// the alternatives counter. Stats/weight-info are rendered once at solve time (they're
+// identical across alternatives), so this is the per-cycle update.
+function renderBuild(b) {
+  const { weight, kind, goal, bounds } = altCtx;
+  $('result-head').innerHTML =
+    `Best ${kind} build — start as ${colorVoc(b.start)} <span class="wtag">(${weight})</span>${goal}`;
+  renderPlan(b.start, b.counts);
+  const owoc = owocUrl(b);
+  const owocEl = $('owoc-url');
+  owocEl.href = owoc;
+  owocEl.textContent = owoc;
+  $('owoc-warn').hidden = weight === DEFAULT_WEIGHT;
+  showShareUrl(b); // pin this exact allocation in the share URL
+  updateAltsUI();
+}
+
+// Show/update the cycler control. Hidden when only one build exists.
+function updateAltsUI() {
+  const alts = $('alts');
+  if (altBuilds.length <= 1) { alts.hidden = true; return; }
+  alts.hidden = false;
+  const total = altCapped ? `${altBuilds.length}+` : `${altBuilds.length}`;
+  $('alt-count').textContent = `build ${altIndex + 1} of ${total}`;
+}
+
+async function runSolve(pinnedBuild = null) {
   if (!highs) return;
   const allowed = selectedVocs();
   const allowedBasics = allowed.filter((v) => BASIC.includes(v));
@@ -773,26 +844,42 @@ async function runSolve() {
   const toggles = Object.fromEntries(TOGGLES.map((t) => [t.opt, t.el.checked]));
   solveBtn.disabled = true;
   status.textContent = 'Solving…';
+  $('spinner').hidden = false;
+  // The solve (and the same-stats enumeration — up to 50 blocking HiGHS solves) runs
+  // synchronously and freezes the main thread, so yield twice to let the browser
+  // actually paint the spinner before we block on it.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   try {
     const t0 = performance.now();
-    const build = solveMaxTotal(highs, { allowed, startPool, bounds, weight, bias, match, maximize,
-                                         require: requireVocs, ...toggles });
+    const solveOpts = { allowed, startPool, bounds, weight, bias, match, maximize,
+                        require: requireVocs, ...toggles };
+    // A pinnedBuild (from a shared `b=` allocation) is displayed as-is; otherwise solve.
+    // Its stats are recomputed from the allocation so enumeration pins the right target.
+    const baseSt = WEIGHT_BASE_ST[weight];
+    const build = pinnedBuild
+      ? { ...pinnedBuild, stats: statsOf(pinnedBuild.start, pinnedBuild.counts, baseSt) }
+      : solveMaxTotal(highs, solveOpts);
+    build.total = STATS.reduce((a, k) => a + build.stats[k], 0);
+    // Enumerate other allocations that reach the EXACT same stats (eager, cap 50).
+    const { builds: others, capped } = enumerateSameStats(highs, solveOpts, build.stats, 50);
     const ms = (performance.now() - t0).toFixed(0);
-    const kind = toggles.pawn ? 'pawn' : 'Arisen';
-    const goal = maximize ? ` <span class="wtag">— max ${STAT_LABEL[maximize]}</span>` : '';
-    $('result-head').innerHTML =
-      `Best ${kind} build — start as ${colorVoc(build.start)} <span class="wtag">(${weight})</span>${goal}`;
-    renderPlan(build.start, build.counts);
-    renderStats(build.stats, build.total, bounds);
+    // altBuilds[0] is the displayed build; append the enumeration's other allocations
+    // (drop the one equal to the displayed build so it isn't shown twice).
+    const sameAlloc = (x) => x.start === build.start &&
+      ['to10', 'to100', 'to200'].every((t) =>
+        JSON.stringify(Object.entries(x.counts[t] || {}).sort()) ===
+        JSON.stringify(Object.entries(build.counts[t] || {}).sort()));
+    altBuilds = [build, ...others.filter((b) => !sameAlloc(b))];
+    altIndex = 0;
+    altCapped = capped;
+    altCtx = {
+      weight, bounds,
+      kind: toggles.pawn ? 'pawn' : 'Arisen',
+      goal: maximize ? ` <span class="wtag">— max ${STAT_LABEL[maximize]}</span>` : '',
+    };
+    renderStats(build.stats, build.total, bounds); // identical across alternatives
     updateWeightInfo(); // weight-class details now live in the results panel
-    showShareUrl();
-    const owoc = owocUrl(build);
-    const owocEl = $('owoc-url');
-    owocEl.href = owoc;
-    owocEl.textContent = owoc;
-    // owoc assumes the M weight class; warn when this build uses another, since
-    // its stamina (base st) won't match there.
-    $('owoc-warn').hidden = weight === DEFAULT_WEIGHT;
+    renderBuild(build);
     showQuote();
     $('results').style.display = 'block';
     $('results').classList.remove('stale'); // fresh build: clear any stale dimming
@@ -802,11 +889,20 @@ async function runSolve() {
     solveFailed('No solution: ' + e.message);
   } finally {
     solveBtn.disabled = false;
+    $('spinner').hidden = true;
   }
 }
 
 solveBtn.disabled = true;
-solveBtn.addEventListener('click', runSolve);
+// Wrap so the click Event isn't passed as runSolve's pinnedBuild argument.
+solveBtn.addEventListener('click', () => runSolve());
+
+// Cycle to the next alternative build (same stats, different vocations).
+$('alt-refresh').addEventListener('click', () => {
+  if (altBuilds.length <= 1) return;
+  altIndex = (altIndex + 1) % altBuilds.length;
+  renderBuild(altBuilds[altIndex]);
+});
 
 // --- copy-to-clipboard for the share link ---
 $('cfg-copy').addEventListener('click', async () => {
@@ -851,6 +947,7 @@ function resetSelections() {
   $('results').style.display = 'none';
   $('results').classList.remove('stale'); // clear stale dimming on reset
   $('stale-banner').hidden = true;
+  $('alts').hidden = true; altBuilds = []; altIndex = 0; // clear the cycler
   if (quoteTimer) { clearInterval(quoteTimer); quoteTimer = null; } // results hidden; stop rotating
   history.replaceState(null, '', location.origin + location.pathname);
   status.classList.remove('err');
@@ -895,7 +992,10 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeInfoPop(); });
 
 // --- restore selections from the URL, then load the solver (auto-solve if shared) ---
-const sharedConfig = applySelections(new URLSearchParams(location.search));
+const sharedParams = new URLSearchParams(location.search);
+const sharedConfig = applySelections(sharedParams);
+// A shared `b=` pins the exact allocation to display (instead of re-solving).
+const sharedBuild = sharedConfig ? decodeAlloc(sharedParams.get('b')) : null;
 
 (async () => {
   try {
@@ -903,7 +1003,7 @@ const sharedConfig = applySelections(new URLSearchParams(location.search));
     solveBtn.disabled = false;
     if (sharedConfig) {
       status.textContent = 'Restored shared configuration — solving…';
-      await runSolve();
+      await runSolve(sharedBuild);
     } else {
       status.textContent = 'Ready.';
     }

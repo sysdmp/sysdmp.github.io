@@ -25,7 +25,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STATS, BALANCE_WEIGHTS } from './data.js';
-import { solveMaxTotal, biasTiersFromMap, biasRanks, effWeights } from './solver.js';
+import { solveMaxTotal, enumerateSameStats, biasTiersFromMap, biasRanks, effWeights } from './solver.js';
 
 // Bias-weighted score using the same eff_weights both solvers optimize.
 const effScore = (stats, bias) => {
@@ -179,6 +179,58 @@ function compare(label, opts) {
   if (!ok) failures++;
 }
 
+// Canonical key for an allocation, so the web and Python build sets can be compared
+// as sets regardless of enumeration order.
+function allocKey(start, counts) {
+  const tier = (m) => Object.entries(m || {}).filter(([, n]) => n > 0)
+    .sort().map(([v, n]) => `${v}:${n}`).join(',');
+  return `${start}|${tier(counts.to10)}|${tier(counts.to100)}|${tier(counts.to200)}`;
+}
+
+// Cross-check the SAME-STATS enumeration: the web's enumerateSameStats and Python's
+// `--count` with all six stats pinned exactly should find the identical SET of
+// allocations. Only meaningful for a target with a small, fully-enumerable count
+// (so both finish under `cap` without truncating). `opts` should pin enough that the
+// build is interesting; we read the solved stats and pin all six for both sides.
+function compareEnumerate(label, opts, cap = 30) {
+  count++;
+  let seed;
+  try { seed = solveMaxTotal(highs, opts); }
+  catch { console.log(`FAIL - ${label}: web seed infeasible`); failures++; return; }
+
+  // Web: full same-stats enumeration.
+  const { builds: webBuilds, capped: webCapped } = enumerateSameStats(highs, opts, seed.stats, cap);
+  const webSet = new Set(webBuilds.map((b) => allocKey(b.start, b.counts)));
+
+  // Python: pin all six stats exactly + --count cap. Carry through the structural opts
+  // (weight/pawn/no-switcheroo/start/avoid) via pyArgs, then override with exact stats.
+  const pinnedOpts = { ...opts, bounds: {} };
+  for (const k of STATS) pinnedOpts.bounds[k] = { min: seed.stats[k], max: seed.stats[k] };
+  let doc;
+  try {
+    const out = execFileSync('uv', ['run', PY, ...pyArgs(pinnedOpts), '--count', String(cap), '--json'],
+      { cwd: PYDIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    doc = JSON.parse(out);
+  } catch (e) { console.log(`FAIL - ${label}: python errored (${e.message})`); failures++; return; }
+  const pyBuilds = doc.builds || [];
+  const pySet = new Set(pyBuilds.map((b) => allocKey(b.start, b.levels)));
+
+  // If either side hit the cap the sets may be truncated differently — require the
+  // case to be small enough that neither is capped (test author picks such targets).
+  const capHit = webCapped || webBuilds.length >= cap || pyBuilds.length >= cap;
+  const same = webSet.size === pySet.size && [...webSet].every((k) => pySet.has(k));
+  const ok = !capHit && same;
+  let detail = `web ${webSet.size} vs py ${pySet.size} allocations`;
+  if (capHit) detail += ' [CAP HIT — pick a smaller target]';
+  else if (!same) {
+    const onlyWeb = [...webSet].filter((k) => !pySet.has(k));
+    const onlyPy = [...pySet].filter((k) => !webSet.has(k));
+    detail += ` [web-only ${onlyWeb.length}, py-only ${onlyPy.length}]`;
+  }
+  console.log(`${ok ? 'ok  ' : 'FAIL'} - ${label}: ${detail}`);
+  if (!ok) failures++;
+}
+
 // ---------------------------------------------------------------------------
 // STATIC suite — fixed, representative cases.
 // ---------------------------------------------------------------------------
@@ -227,6 +279,12 @@ compare('bias negative defense -3', { bias: { defense: -3 } });
 compare('bias mixed +attack -hp', { bias: { attack: 4, hp: -3 } });
 compare('bias + weight LL', { bias: { mattack: 5 }, weight: 'LL' });
 compare('bias + maximize attack (bias mattack)', { maximize: 'attack', bias: { mattack: 3 } });
+
+// Same-stats ENUMERATION parity: the web's enumerateSameStats and Python's --count
+// (all six stats pinned) must find the identical set of allocations. Targets chosen
+// to have a small, fully-enumerable count so neither side hits the cap.
+compareEnumerate('enumerate: defense=700 (3 allocations)', { bounds: { defense: { min: 700, max: 700 } } });
+compareEnumerate('enumerate: defense=750 (2 allocations)', { bounds: { defense: { min: 750, max: 750 } } });
 
 // ---------------------------------------------------------------------------
 // DYNAMIC suite — random cases each run (fuzz). Seeded for reproducibility:

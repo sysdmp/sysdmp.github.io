@@ -122,7 +122,8 @@ function expr(terms) {
 // === 'bias_t'). `floors`: { stat: minValue } baked-in bias floors (final solve).
 function buildLP({ start, pool, bounds, baseSt, pawn, match,
                    objStat = null, pin = null, minVoc = false, noPre10Switch = false,
-                   reqVocs = {}, effW = BALANCE_WEIGHTS, shares = [], floors = null }) {
+                   reqVocs = {}, effW = BALANCE_WEIGHTS, shares = [], floors = null,
+                   nogoods = [] }) {
   const base = { ...basic[start].init };
   if (baseSt != null) base.st = baseSt;
 
@@ -287,6 +288,30 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
       mi++;
     }
   }
+
+  // No-good cuts: each entry is a prior allocation { 'tier_voc': count } to exclude,
+  // so the solver must return a DIFFERENT allocation. For every decision var x with
+  // recorded value v, add binaries g (x >= v+1) and l (x <= v-1) and require their
+  // sum over all vars >= 1 — i.e. at least one var differs. (Mirrors the Python
+  // prototype's enumeration cuts.)
+  nogoods.forEach((alloc, ci) => {
+    const inds = [];
+    for (const tier of ['to10', 'to100', 'to200']) {
+      const U = TIER_SIZE[tier];
+      for (const v of tierVocs(tier, pool)) {
+        const name = varName(tier, v);
+        const vi = alloc[name] || 0;
+        const g = `ng${ci}_g_${name}`, l = `ng${ci}_l_${name}`;
+        binaries.push(g, l);
+        // g=1 => x >= vi+1 :  x - (vi+1) g >= 0  (when g=0, x>=0 trivially)
+        cons.push(`ngg_${ci}_${name}: + ${name} - ${vi + 1} ${g} >= 0`);
+        // l=1 => x <= vi-1 :  x + (U - vi + 1) l <= U  (when l=0, x<=U trivially)
+        cons.push(`ngl_${ci}_${name}: + ${name} + ${U - vi + 1} ${l} <= ${U}`);
+        inds.push(`+ ${g}`, `+ ${l}`);
+      }
+    }
+    cons.push(`ngsum_${ci}: ${inds.join(' ')} >= 1`);
+  });
 
   // Default count vars have a natural upper bound (their tier size); declaring it
   // helps the solver and keeps them non-negative integers.
@@ -477,4 +502,62 @@ export function solveMaxTotal(highs, opts = {}) {
   delete best.nVoc;
   delete best.lexOpt;
   return best;
+}
+
+// Flatten a per-tier counts map into the { 'tier_voc': n } form the no-good cuts use.
+function flatAlloc(counts) {
+  const a = {};
+  for (const tier of ['to10', 'to100', 'to200'])
+    for (const [v, n] of Object.entries(counts[tier] || {})) a[varName(tier, v)] = n;
+  return a;
+}
+
+/**
+ * Enumerate builds that reach the EXACT same six final stats as a solved build but
+ * via a different vocation/level allocation (and possibly a different starting
+ * vocation). Pins every stat to equality and walks distinct allocations across all
+ * allowed starts using no-good cuts.
+ *
+ * @param {object} highs    initialized HiGHS instance.
+ * @param {object} opts     the same options passed to solveMaxTotal (pool/pawn/weight/
+ *                          require/startPool/no-switcheroo are honored; bounds/match/
+ *                          bias/maximize are irrelevant once all stats are pinned).
+ * @param {object} stats    the target final stats { hp, st, ... } to match exactly.
+ * @param {number} [cap=50] max builds to return; if more exist, `capped` is true.
+ * @returns {{builds: Array<{start,counts,stats}>, capped: boolean}}
+ */
+export function enumerateSameStats(highs, opts = {}, stats, cap = 50) {
+  let pool = opts.allowed ?? ALL;
+  if (opts.pawn) pool = pool.filter((v) => !PAWN_EXCLUDED.includes(v));
+  const starts = (opts.startPool ?? BASIC).filter((v) => pool.includes(v));
+  const baseSt = opts.weight != null ? WEIGHT_BASE_ST[opts.weight] : null;
+  const reqVocs = {};
+  for (const [v, n] of Object.entries(opts.require ?? {})) {
+    if (pool.includes(v)) reqVocs[v] = Math.max(1, Math.min(90, Math.round(n)));
+  }
+  // Pin all six stats to equality; this subsumes the user's bounds/match/bias/maximize.
+  const bounds = {};
+  for (const k of STATS) bounds[k] = { min: stats[k], max: stats[k] };
+
+  const SOLVE_OPTS = { mip_rel_gap: 0, mip_abs_gap: 0 };
+  const modelBase = { pool, bounds, baseSt, pawn: opts.pawn, match: [],
+                      noPre10Switch: !!opts.noPre10Switch, reqVocs };
+
+  const builds = [];
+  let capped = false;
+  for (const start of starts) {
+    const nogoods = []; // allocations already seen for THIS start
+    for (;;) {
+      if (builds.length >= cap) { capped = true; break; }
+      const lp = buildLP({ ...modelBase, start, objStat: null, nogoods });
+      if (lp === null) break;
+      const sol = highs.solve(lp, SOLVE_OPTS);
+      if (sol.Status !== 'Optimal') break;
+      const counts = decode(sol, pool);
+      builds.push({ start, counts, stats: statsOf(start, counts, baseSt) });
+      nogoods.push(flatAlloc(counts));
+    }
+    if (capped) break;
+  }
+  return { builds, capped };
 }

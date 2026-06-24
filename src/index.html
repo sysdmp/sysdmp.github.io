@@ -162,6 +162,12 @@
     font-weight: 600;
   }
   button.secondary:hover { filter: none; border-color: var(--gold); }
+  /* alternative-builds cycler in the results header */
+  .alts { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin: -.4rem 0 .9rem; }
+  .alts[hidden] { display: none; }
+  .alts button { padding: .4rem .8rem; font-size: .82rem; border-radius: 6px; }
+  .alt-count { color: var(--gold-bright); font-size: .85rem; font-variant-numeric: tabular-nums; }
+  .alt-note { color: var(--dim); font-size: .78rem; }
   .wsel { color: var(--dim); font-size: .9rem; display: flex; align-items: center; gap: .5rem; margin-top: .5rem; }
   .wsel select { min-width: 0; }
   .wtag { color: var(--dim); font-weight: 400; }
@@ -177,6 +183,15 @@
   .wsel select:focus { outline: none; border-color: var(--gold); }
   .status { color: var(--dim); font-size: .9rem; }
   .status.err { color: var(--red); }
+  /* solve spinner: a small spinning ring shown while the (synchronous) solve runs */
+  .spinner {
+    width: 1.1rem; height: 1.1rem; border-radius: 50%;
+    border: 2px solid var(--line); border-top-color: var(--gold-bright);
+    animation: spin .7s linear infinite; flex: none;
+  }
+  .spinner[hidden] { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: .5rem .65rem; text-align: left; border-bottom: 1px solid var(--line); }
   th { color: var(--gold); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
@@ -303,6 +318,7 @@
     <div class="controls">
       <button id="solve">Solve</button>
       <button id="reset" type="button" class="secondary">Reset</button>
+      <span class="spinner" id="spinner" hidden></span>
       <span class="status" id="status">Loading solver…</span>
     </div>
   </div>
@@ -310,6 +326,11 @@
   <div class="panel" id="results">
     <p class="stale-banner" id="stale-banner" hidden></p>
     <h2 id="result-head">Best build</h2>
+    <div class="alts" id="alts" hidden>
+      <button id="alt-refresh" type="button" class="secondary">↻ another</button>
+      <span class="alt-count" id="alt-count"></span>
+      <span class="alt-note">same exact stats, different vocations</span>
+    </div>
     <div class="weight-info" id="weight-info"></div>
     <div class="two">
       <div>

@@ -37,6 +37,11 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
   by default the solver picks the best-scoring start among the allowed basics.
 - **Weight class** (SS–LL) — sets level-1 stamina.
 
+`enumerateSameStats(highs, opts, stats, cap)` lists builds that reach the **exact
+same** final stats via a different vocation allocation; the web UI uses it to cycle
+through equivalents (a "↻ another" button), and shared links pin the exact displayed
+allocation.
+
 It also restricts the vocation pool, shares the configuration via the URL, links
 to the [owoc.github.io](https://owoc.github.io) planner, and offers light/dark/auto
 themes.
