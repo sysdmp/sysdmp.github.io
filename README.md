@@ -167,7 +167,7 @@ As of v1.0.0 the web and Python **bias** models are identical (both the equal-sh
 floor then maximize), so bias is now cross-checked too — on the bias-weighted
 optimum. Everything is cross-validated: bounds, divisor, hp↔st `~` matches (tol 100
 on both sides), no-early-switcheroo, per-vocation **require** minimums, a forced
-**start-as** class, and **bias**. Only Python's `--nice` is excluded (not ported, and
-being retired). See `src/bias-study.mjs` for a per-case bias convergence check.
+**start-as** class, and **bias** — the full web feature set. See `src/bias-study.mjs`
+for a per-case bias convergence check.
 
 

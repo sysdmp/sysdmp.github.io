@@ -14,10 +14,9 @@
 //   * --maximize STAT  -> the exact maximized stat value (its lexicographic top
 //     priority), which is also unique.
 //
-// Deliberately NOT cross-tested (diverges on purpose):
-//   * --nice — excluded per request (and being removed from Python).
-// Combat-stat ~ matches use tolerance 10, the hp~st pair 100 — both match the
-// prototype. bias now uses the same model on both sides and IS cross-tested.
+// Everything the web solver supports is cross-tested. Combat-stat ~ matches use
+// tolerance 10, the hp~st pair 100 — both match the prototype; bias uses the same
+// model on both sides. (Python's --nice was removed; the web never had it.)
 //
 // Run: npm run test:py   (needs `uv` + the Python prototype in the repo root)
 

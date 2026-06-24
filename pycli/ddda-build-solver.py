@@ -205,7 +205,7 @@ MAX_GAIN = {k: max(d[t][k] for d in VOCS.values()
 PAWN_EXCLUDED = ['mknight', 'marcher', 'assassin']
 # --divisor rounds a stat to a multiple of the given integer (e.g. 100 -> a
 # "perfect" multiple of 100, 50 -> half-perfect, 10 -> a round decimal). Handled
-# as {stat: divisor} in the solver; 'nice' is separate (enumerated).
+# as {stat: divisor} in the solver.
 # --match tolerance for the approximate '~' operator: paired stats may differ by
 # at most this many points (the exact '=' operator forces an equal value, tol 0).
 # The hp/st (vitals) pair allows a wider gap, since those stats have large raw
@@ -447,34 +447,9 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
             progress(restart + 1)
     return best
 
-def is_nice(n):
-    """Return True if ``n`` is a 'nice' number.
-
-    Nice numbers are repdigits with at least 3 repeated digits: 111, 444, 666,
-    7777, ... (two-digit repdigits like 44 and single digits are not nice).
-    """
-    s = str(n)
-    return len(s) >= 3 and len(set(s)) == 1
-
-def nice_values(lo, hi):
-    """List the nice numbers in the inclusive range [lo, hi] (sorted ascending)."""
-    return [n for n in range(max(0, lo), hi + 1) if is_nice(n)]
-
-def _stat_upper_bound(k, base, adv_pool=ALL, basic_pool=BASIC):
-    """Tight upper bound on stat ``k`` for a build starting from ``base``.
-
-    Equals the base value plus the maximum possible per-level gain in each
-    range; used only to bound the nice-value enumeration in the ILP. The pools
-    restrict the vocations available (1->10 uses basics; later ranges adv_pool).
-    """
-    m10  = max(growth(v, 'to10')[k]  for v in basic_pool)
-    m100 = max(growth(v, 'to100')[k] for v in adv_pool)
-    m200 = max(growth(v, 'to200')[k] for v in adv_pool)
-    return base[k] + 9 * m10 + 90 * m100 + 100 * m200
-
-def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
+def solve_ilp(cons, count=1, rounding=None, match=(),
               minimize_vocations=False, base_st=None, allowed=None,
-              maximize=(), minimize=(), bias_tiers=(), weights=None, start_pool=None,
+              maximize=(), bias_tiers=(), weights=None, start_pool=None,
               verbose=False, time_limit=5, pawn=False, no_early_switch=False,
               require=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
@@ -487,11 +462,6 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     `rounding` maps a stat name to an integer divisor (e.g. 100, 50, 10). The
     stat's value is forced to divisor*k via a fresh integer k, its max bound is
     dropped, and its min (if any) is kept as a floor.
-
-    `nice` is a set of stat names that must each be a "nice" number (see
-    ``is_nice``). Like the rounding modes, the max bound is dropped and the min
-    kept as a floor; the value is forced into the enumerated nice set via binary
-    selectors.
 
     `match` is an iterable of (stat_a, stat_b, tol) triples constraining the two
     final values: tol 0 forces them equal, tol>0 lets them differ by at most
@@ -515,9 +485,6 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
     first, via sequential lexicographic optimization: the first stat is
     maximized, frozen at its optimum, then the next, and so on. This is a hard
     ordering that sits above the weighted total-stat objective.
-
-    `minimize`: like `maximize` but minimizes each stat, in priority order.
-    Ranked below all `maximize` stats and above the total-stat objective.
 
     `bias_tiers`: an ordered list of (sign, [stat names]) tiers. sign=+1 favors,
     -1 reduces. Within each sign group the i-th tier gets magnitude
@@ -556,7 +523,6 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # timed out: usable iff it produced variable values
         return any(v.value() is not None for v in prob.variables())
     rounding = dict(rounding or {})
-    nice = set(nice)
     # Required vocations { voc: min levels in to100 }; keep only those in the pool
     # (a require not in the pool would bound a nonexistent var). Each min clamped 1..90.
     require = {v: max(1, min(90, int(n))) for v, n in (require or {}).items() if v in (allowed if allowed is not None else ALL)}
@@ -613,8 +579,8 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                 + pulp.lpSum(growth(v,'to100')[k] * x100[v] for v in adv_pool) \
                 + pulp.lpSum(growth(v,'to200')[k] * x200[v] for v in adv_pool)
 
-        # The per-stat bounds / divisor / nice / match targets are applied via this
-        # closure, NOT inline -- because --maximize / --minimize must rank ABOVE
+        # The per-stat bounds / divisor / match targets are applied via this
+        # closure, NOT inline -- because --maximize must rank ABOVE
         # them. They're maximized first (over the structural build space only: pool,
         # pawn, no-switcheroo, weight) to find the stat's true global optimum, that
         # optimum is pinned, and only THEN are the targets imposed. So a target that
@@ -631,20 +597,6 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                     mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
                     prob += expr == divisor * mult
                     if lo is not None: prob += expr >= lo
-                elif k in nice:
-                    # nice mode: value must be one of the enumerated nice numbers in
-                    # [floor, reachable-max]. Pick exactly one via binary selectors.
-                    floor = lo if lo is not None else 0
-                    ub = _stat_upper_bound(k, base, adv_pool, basic_pool)
-                    choices = nice_values(floor, ub)
-                    if not choices:
-                        # no nice value is reachable for this stat -> infeasible start
-                        prob += expr <= -1   # trivially unsatisfiable
-                    else:
-                        sel = {nv: pulp.LpVariable(f"nice_{k}_{nv}_{start}", cat="Binary") for nv in choices}
-                        prob += pulp.lpSum(sel.values()) == 1
-                        prob += expr == pulp.lpSum(nv * sel[nv] for nv in choices)
-                    if lo is not None: prob += expr >= lo
                 else:
                     if lo is not None: prob += expr >= lo
                     if hi is not None: prob += expr <= hi
@@ -659,9 +611,8 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                     prob += exprs[b_stat] - exprs[a_stat] <= tol
 
         # penalty is reported against constraints as actually enforced: rounding
-        # and nice stats keep only their floor, so their dropped max isn't counted.
-        relaxed = set(rounding) | nice
-        eval_cons = {k: ((cons[k][0], None) if k in relaxed else cons[k]) for k in STATS}
+        # stats keep only their floor, so their dropped max isn't counted.
+        eval_cons = {k: ((cons[k][0], None) if k in rounding else cons[k]) for k in STATS}
 
         # Per-stat objective weights: the base balance weights plus any --bias
         # adjustment. Within each sign group (positive favor / negative reduce),
@@ -677,7 +628,7 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
         # Base objective (lexicographic via weight magnitudes; all minimized):
         #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
         #  2. maximize the (bias-weighted) total of final stats.
-        # --maximize / --minimize sit ABOVE this via a lexicographic pre-pass
+        # --maximize sits ABOVE this via a lexicographic pre-pass
         # below. The start vocation is chosen by the resulting objective across
         # all starts (see the candidate sort at the end), not by a fixed order.
         # No per-vocation cosmetic preferences.
@@ -697,37 +648,30 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
                     prob += xs[v] <= U * used[v]
             base_objective = W_VOC * pulp.lpSum(used.values()) + base_objective
 
-        # --maximize / --minimize lexicographic pre-pass: optimize each listed
-        # stat in priority order, freezing each at its optimum before moving on.
-        # All --maximize stats rank above all --minimize stats. Each entry is
-        # (stat, sense) where sense=+1 maximizes, -1 minimizes. Skipped when both
-        # lists are empty.
+        # --maximize lexicographic pre-pass: maximize each listed stat in priority
+        # order, freezing each at its optimum before moving on. Skipped when empty.
         #
         # Crucially this runs BEFORE apply_targets(): each stat is optimized over
         # the structural build space only (block sizes, pawn, no-switcheroo,
-        # weight), so the bounds/divisor/nice/match targets cannot lower the peak.
+        # weight), so the bounds/divisor/match targets cannot lower the peak.
         # The optima are pinned, then the targets are applied -- a target that
         # can't be met at the peak makes the start infeasible.
-        lex_goals = [(s, +1) for s in maximize] + [(s, -1) for s in minimize]
         infeasible_start = False
-        lex_opts = []   # the pinned optima, in priority order
-        for stat, sense in lex_goals:
-            prob.setObjective(-sense * exprs[stat])  # minimize -> max/min per sense
+        lex_opts = []   # the pinned maximized optima, in priority order
+        for stat in maximize:
+            prob.setObjective(-exprs[stat])  # minimize -expr == maximize expr
             prob.solve(cbc)
             if not solved_ok(prob):
                 infeasible_start = True
                 break
             opt = round(exprs[stat].value())
-            lex_opts.append((sense, opt))
-            if sense > 0:
-                prob += exprs[stat] >= opt   # pin maximized optimum
-            else:
-                prob += exprs[stat] <= opt   # pin minimized optimum
+            lex_opts.append(opt)
+            prob += exprs[stat] >= opt   # pin maximized optimum
         if infeasible_start:
             continue  # this start vocation cannot satisfy the constraints
 
-        # Now impose the per-stat bounds / divisor / nice / match targets, ranked
-        # below the pinned maximize/minimize optima.
+        # Now impose the per-stat bounds / divisor / match targets, ranked
+        # below the pinned maximize optima.
         apply_targets()
 
         # --bias "equal-share floor then maximize": a single weighted-sum objective
@@ -770,11 +714,11 @@ def solve_ilp(cons, count=1, rounding=None, nice=(), match=(),
             # Quality key mirroring the lexicographic objective (smaller = better),
             # so the winning start is chosen by stats/objective, not BASIC order:
             #  1. distinct vocation count, only when --minimize-vocations is set;
-            #  2. --maximize -> -value / --minimize -> +value, priority order;
+            #  2. --maximize -> -value, priority order (higher value sorts first);
             #  3. the bias-weighted stat total (maximize -> negate).
             n_vocs = len({v for cc in (c10, c100, c200) for v, n in cc.items() if n > 0})
             voc_key = (n_vocs,) if minimize_vocations else ()
-            lex_key = tuple(-opt if sense > 0 else opt for sense, opt in lex_opts)
+            lex_key = tuple(-opt for opt in lex_opts)
             wstat = sum(eff_weights[k] * s[k] for k in STATS)
             quality = (voc_key, lex_key, -wstat)
             candidates.append((quality, build))
@@ -821,17 +765,17 @@ def parse_args():
                       'bold', 'cyan') +
                     "  Find a build whose final stats meet your targets. Each stat takes an\n"
                     "  optional min and/or max (omit one to leave it unbounded), or an exact\n"
-                    "  value. The ILP solver adds extra goals: divisor rounding, nice\n"
-                    "  numbers, match, bias, maximize / minimize, and minimize-vocations.",
+                    "  value. The ILP solver adds extra goals: divisor rounding,\n"
+                    "  match, bias, maximize, and minimize-vocations.",
         epilog=c("\nexamples:\n", 'bold', 'yellow') +
-               "  # minimum HP and stamina, everything else default\n"
+               "  # minimum HP and stamina, everything else unconstrained\n"
                "  ddda-build-solver.py --hp-min 3600 --st-min 4000\n\n"
                "  # pin attack to an exact value, output 3 distinct builds\n"
                "  ddda-build-solver.py --attack 550 --count 3\n\n"
                "  # keep physical and magick stats equal, fewest vocation changes\n"
                "  ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocations\n\n"
-               "  # heavy character, nice HP, machine-readable output\n"
-               "  ddda-build-solver.py --weight LL --nice hp --json\n")
+               "  # round HP to a multiple of 1000, machine-readable output\n"
+               "  ddda-build-solver.py --weight LL --divisor hp=1000 --json\n")
 
     g_stats = ap.add_argument_group(c('\U0001f3af  stat targets', 'bold'),
         "Per stat: --STAT pins an exact value; --STAT-min / --STAT-max set bounds.\n"
@@ -866,10 +810,6 @@ def parse_args():
                               "  --divisor attack=10,mattack=20\n"
                               "groups work too (all=,combat=); later segments win.\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
-    g_goals.add_argument('--nice', type=str, default='', metavar='STATS',
-                         help="comma-separated stats forced to a 'nice' number:\n"
-                              "a repdigit of 3+ digits (444, 666, 7777)\n"
-                              "stats: " + ','.join(STATS) + " (or 'all')")
     g_goals.add_argument('--match', type=str, default='', metavar='PAIRS',
                          help="comma-separated stat pairs tied together:\n"
                               "'a=b' forces equal values; 'a~b' lets them differ\n"
@@ -908,13 +848,6 @@ def parse_args():
                               "a target that conflicts with the peak is INFEASIBLE,\n"
                               "not silently lowered (--maximize attack --hp-min 3220\n"
                               "is like --attack <max> --hp-min 3220).\n"
-                              "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
-    g_goals.add_argument('--minimize', type=str, default='', metavar='STATS',
-                         help="comma-separated stats to hard-minimize, highest\n"
-                              "priority first. ranked below --maximize and above\n"
-                              "your min/max/match targets and the total stat sum,\n"
-                              "so like --maximize it can render targets infeasible\n"
-                              "rather than relaxing the minimized value.\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--equal-weights', action='store_true',
                          help="value hp/st equally with the other stats in the\n"
@@ -1085,7 +1018,7 @@ def _fmt_levels(counts):
     items = [(v, counts[v]) for v in VOC_ORDER if counts.get(v, 0) > 0]
     return '  '.join(f"{_color_voc(v)} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
 
-def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tiers=()):
+def print_build(idx, build, cons, rounding=None, weight=None, bias_tiers=()):
     """Print one build as a colored header plus leveling-plan and final-stats tables.
 
     Args:
@@ -1095,8 +1028,6 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         rounding: {stat: int divisor} map; these stats' max bound is ignored
             when judging requirements, and annotated (e.g. "x100") in the
             details column.
-        nice: iterable of stats in "nice" mode, whose max bound is likewise
-            ignored (the value is annotated as "nice" in the details column).
         weight: optional weight-class name; when given, its class / range /
             base stamina / regen are appended as rows to the final-stats table.
         bias_tiers: list of (sign, [stats]) bias tiers; each stat's tier is noted
@@ -1104,7 +1035,6 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
     """
     p,start,c10,c100,c200,s = build
     rounding = dict(rounding or {})
-    nice = set(nice)
     # map stat -> signed bias label (+n favor / -n reduce), per its 1-based tier
     bias_note = {st: f"bias {'+' if sign > 0 else '-'}{idx + 1}"
                  for st, (sign, idx) in bias_ranks(bias_tiers).items()}
@@ -1148,14 +1078,13 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
     rows = []
     for k in STATS:
         lo, hi = cons[k]
-        hi_eff = None if (k in rounding or k in nice) else hi
+        hi_eff = None if k in rounding else hi
         ok = (lo is None or s[k] >= lo) and (hi_eff is None or s[k] <= hi_eff)
         val = c(str(s[k]), 'green' if ok else 'red', 'bold')
         bound = []
         if lo is not None: bound.append(f"{GLYPH['ge']}{lo}")
         if hi_eff is not None: bound.append(f"{GLYPH['le']}{hi_eff}")
         if k in rounding: bound.append(f"{GLYPH['mul']}{rounding[k]}")
-        if k in nice: bound.append("nice")
         if k in bias_note: bound.append(bias_note[k])
         rows.append([c(k,'cyan'), val, c(' '.join(bound) or GLYPH['dash'], 'dim')])
     # summary totals
@@ -1195,14 +1124,14 @@ def print_build(idx, build, cons, rounding=None, nice=(), weight=None, bias_tier
         print(c(f"  (planner assumes weight M; this {weight} build's st will read "
                 f"differently there — st here is authoritative)", 'dim', 'yellow'))
 
-def print_constraints(cons, exact, rounding, nice, match, bias_tiers, avoid):
+def print_constraints(cons, exact, rounding, match, bias_tiers, avoid):
     """Print the banner, the 'avoiding' line, and the target-constraints table.
 
     Args mirror the parsed inputs from main(): cons {stat:(min,max)}, the exact
-    stat list, rounding {stat:int divisor}, nice (iterable of stat names), match
-    triples (a, b, tol; tol 0 = equal, tol>0 = within tol), bias_tiers, and the
-    set of avoided vocations. Stats linked by an exact match show their
-    group-intersected bounds; the bias column shows each stat's signed tier.
+    stat list, rounding {stat:int divisor}, match triples (a, b, tol; tol 0 =
+    equal, tol>0 = within tol), bias_tiers, and the set of avoided vocations.
+    Stats linked by an exact match show their group-intersected bounds; the bias
+    column shows each stat's signed tier.
     """
     print(c(f"DDDA BUILD SOLVER {GLYPH['dash']} LEVEL 200", 'bold', 'cyan'))
     if avoid:
@@ -1247,11 +1176,9 @@ def print_constraints(cons, exact, rounding, nice, match, bias_tiers, avoid):
     crows = []
     for k in STATS:
         lo, hi = comp_of[k]   # effective (group-intersected) bounds
-        # single label for the stat's rounding/nice mode (mutually exclusive)
+        # single label for the stat's rounding (divisor) mode
         if k in rounding:
             round_label = c(f"{GLYPH['mul']}{rounding[k]}", 'green')
-        elif k in nice:
-            round_label = c("nice", 'green')
         else:
             round_label = c(GLYPH['dash'], 'dim')
         # signed bias tier: +n favors / -n reduces (n = 1-based tier within sign)
@@ -1347,7 +1274,7 @@ def render_imported(doc):
     constraints = doc.get("constraints") or {}
     # legacy divisor-mode booleans (pre --divisor) -> integer divisor
     LEGACY_DIV = {'perfect': 100, 'half_perfect': 50, 'decimal': 10}
-    cons, exact, rounding, nice = {}, [], {}, []
+    cons, exact, rounding = {}, [], {}
     for k in STATS:
         info = constraints.get(k, {})
         cons[k] = (info.get("min"), info.get("max"))
@@ -1359,8 +1286,8 @@ def render_imported(doc):
             for mode, d in LEGACY_DIV.items():
                 if info.get(mode):
                     rounding[k] = d
-        if info.get("nice"):
-            nice.append(k)
+        # ("nice" was a removed mode; older documents may still carry the flag —
+        #  it's simply ignored now.)
     # match: accept new 3-element triples [a, b, tol] and older 2-element pairs
     # [a, b] (which were always exact, i.e. tol 0).
     match = [(p[0], p[1], p[2] if len(p) > 2 else 0) for p in (doc.get("match") or [])]
@@ -1373,7 +1300,7 @@ def render_imported(doc):
     avoid = set(doc.get("avoided_vocations") or [])
     weight = (doc.get("weight") or {}).get("class")
 
-    print_constraints(cons, exact, rounding, nice, match, bias_tiers, avoid)
+    print_constraints(cons, exact, rounding, match, bias_tiers, avoid)
 
     solver = doc.get("solver")
     if solver == 'ilp':
@@ -1402,7 +1329,7 @@ def render_imported(doc):
           + (c(f" (requested {count})", 'dim') if count and count > 1 else "") + ":")
     for i, bd in enumerate(builds_json, 1):
         build = _build_from_dict(bd)
-        print_build(i, build, cons, rounding, nice, weight=weight, bias_tiers=bias_tiers)
+        print_build(i, build, cons, rounding, weight=weight, bias_tiers=bias_tiers)
     if count and len(builds_json) < count:
         print(c(f"\n(only {len(builds_json)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
     _print_imported_time(doc)
@@ -1431,8 +1358,8 @@ def _build_from_dict(bd):
 def main():
     """CLI entry point: parse args, run the chosen solver, and print results.
 
-    Parses and validates the stat bounds, rounding/nice modes, match pairs,
-    bias tiers, maximize/minimize priorities, weight class, and avoided
+    Parses and validates the stat bounds, rounding (divisor) modes, match pairs,
+    bias tiers, maximize priorities, weight class, and avoided
     vocations, dispatches to the ILP or search solver, and emits either a JSON
     document (``--json``) or colored tables.
     """
@@ -1554,30 +1481,10 @@ def main():
                     if s not in exact:   # an exact value overrides rounding
                         rounding[s] = int(dstr)
 
-    # --nice: stats forced to a "nice" number (enumerated repdigit). A stat can't
-    # be both nice and divisor-rounded; an exact value overrides both.
-    nice = []
-    nice_names = parse_stat_list(a.nice)
-    if bad_stats('--nice', nice_names, allow_groups=True):
-        return
-    for s in nice_names:
-        if s in exact:
-            continue
-        if s in rounding:
-            fail(f"stat '{s}' has conflicting modes (--divisor and --nice)")
-            return
-        nice.append(s)
 
-    # --maximize / --minimize: hard lexicographic goals; --bias: soft weight boost.
+    # --maximize: hard lexicographic goal; --bias: soft weight boost.
     maximize = parse_stat_list(a.maximize)
-    minimize = parse_stat_list(a.minimize)
-    if bad_stats('--maximize', maximize) or bad_stats('--minimize', minimize):
-        return
-    # --maximize and --minimize cannot target the same stat.
-    clash = set(maximize) & set(minimize)
-    if clash:
-        fail(f"--maximize and --minimize both target: {','.join(sorted(clash))} "
-             "(cannot maximize and minimize the same stat)")
+    if bad_stats('--maximize', maximize):
         return
 
     # --bias: comma separates priority tiers; '=' groups stats into the SAME tier
@@ -1714,8 +1621,7 @@ def main():
         },
         "constraints": {k: {"min": cons[k][0], "max": cons[k][1],
                             "exact": k in exact,
-                            "divisor": rounding.get(k),
-                            "nice": k in nice} for k in STATS},
+                            "divisor": rounding.get(k)} for k in STATS},
         "match": [[a_s, b_s, tol] for a_s, b_s, tol in match],
         "pawn": a.pawn,
         "no_early_switcheroo": a.no_early_switcheroo,
@@ -1725,11 +1631,10 @@ def main():
         "bias": bias,
         "bias_tiers": [{"sign": sign, "stats": tier} for sign, tier in bias_tiers],
         "maximize": maximize,
-        "minimize": minimize,
     }
 
     if not a.json:
-        print_constraints(cons, exact, rounding, nice, match, bias_tiers, avoid)
+        print_constraints(cons, exact, rounding, match, bias_tiers, avoid)
 
     method = a.solver
     if method == 'auto':
@@ -1750,9 +1655,9 @@ def main():
         if not a.json:
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         _t0 = time.perf_counter()
-        builds = solve_ilp(cons, count=count, rounding=rounding, nice=nice, match=match,
+        builds = solve_ilp(cons, count=count, rounding=rounding, match=match,
                            minimize_vocations=a.minimize_vocations, base_st=base_st,
-                           allowed=allowed, maximize=maximize, minimize=minimize,
+                           allowed=allowed, maximize=maximize,
                            bias_tiers=bias_tiers,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
                            start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
@@ -1780,9 +1685,9 @@ def main():
             return
     else:
         if not a.json:
-            ilp_only = [('--divisor', a.divisor), ('--nice', a.nice), ('--match', a.match),
+            ilp_only = [('--divisor', a.divisor), ('--match', a.match),
                         ('--minimize-vocations', a.minimize_vocations), ('--require', a.require),
-                        ('--bias', a.bias), ('--maximize', a.maximize), ('--minimize', a.minimize)]
+                        ('--bias', a.bias), ('--maximize', a.maximize)]
             for flag, val in ilp_only:
                 if val:
                     print(c(f"\nnote: {flag} is only supported by the ILP solver; ignoring it for search.", 'yellow'))
@@ -1823,7 +1728,7 @@ def main():
 
     print(c(f"\nfound {len(builds)} build(s)", 'bold') + (c(f" (requested {count})", 'dim') if count > 1 else "") + ":")
     for i, b in enumerate(builds, 1):
-        print_build(i, b, cons, rounding, nice, weight=a.weight, bias_tiers=bias_tiers)
+        print_build(i, b, cons, rounding, weight=a.weight, bias_tiers=bias_tiers)
     if len(builds) < count:
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
     if solve_time is not None:

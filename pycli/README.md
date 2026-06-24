@@ -86,7 +86,7 @@ Tighten or relax any stat with `--<stat>-min` / `--<stat>-max`, pin one exactly 
 ## Output
 
 By default the tool prints colored ASCII/Unicode tables: the target constraints (with
-a single `round` column showing each stat's rounding/nice mode), and for each build a
+a single `round` column showing each stat's rounding mode), and for each build a
 **leveling plan** (start vocation, which vocation to level in each range, the total
 **vocation switches** the plan requires, and a warning if it changes vocation before
 level 10) and the resulting **final stats** (green if a
@@ -165,28 +165,25 @@ These are honored only by the exact (`ilp`) solver; the `search` solver ignores 
 with a warning.
 
 **Rounding** — force stats to a "round" value. This drops the stat's max bound and keeps
-its min as a floor. A stat may be either divisor-rounded or `nice`, not both, and an exact
-`--<stat>` value overrides either.
+its min as a floor; an exact `--<stat>` value overrides it.
 
 | Flag             | Forces each listed stat to…                                                  |
 |------------------|------------------------------------------------------------------------------|
-| `--divisor SPEC` | a **multiple of a divisor**. A bare number applies to every stat (`--divisor 100` → multiples of 100; 50 = half-perfect, 10 = round decimal). Or give per-stat `stat=N` segments: `--divisor attack=10,mattack=20`. Group keywords work (`--divisor combat=50`), and later segments override earlier ones. |
-| `--nice STATS`   | a **"nice" number**: a repdigit of 3+ identical digits (`444`, `666`, `7777`). |
+| `--divisor SPEC` | a **multiple of a divisor**. A bare number applies to every stat (`--divisor 100` → multiples of 100; 50 = half-perfect, 10 = round decimal). Or give per-stat `stat=N` segments: `--divisor attack=10,mattack=20`. Group keywords work (`--divisor combat=50`), and later segments override earlier ones. (For "nice"/repdigit values like 4444, use a divisor — e.g. `--divisor hp=1111`.) |
 
 **Other goals:**
 
 | Flag                    | Meaning                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------|
 | `--match PAIRS`         | Comma-separated stat pairs tied together. `a=b` forces **equal** final values; `a~b` lets them differ by at most **10** points for combat pairs, or **100** for the `hp~st` pair (e.g. `attack~mattack` might give 490 / 500). Mix freely: `attack=mattack,defense~mdefense`. The keyword `all` expands to the three exact pairings `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
-| `--bias STATS`          | Comma-separated **priority tiers** of stats to softly favor — the first tier favored most, each later tier less. Positively-biased stats are guaranteed to grow (an equal-share floor proportional to their tier), then the weighted total maximizes within that. Group stats into one tier (equal weight) with `=`: e.g. `attack=mattack,mdefense` favors attack and mattack equally (tier 1) and mdefense too but less (tier 2). Prefix a tier with `-` to **reduce** a stat's weight instead — pass it via the `=` form so argparse keeps the dash (`--bias=-mattack`) or after a comma (`attack,-mattack`); positive and negative tiers are independent and their order doesn't matter. A soft preference; use `--maximize`/`--minimize` for hard guarantees. |
+| `--bias STATS`          | Comma-separated **priority tiers** of stats to softly favor — the first tier favored most, each later tier less. Positively-biased stats are guaranteed to grow (an equal-share floor proportional to their tier), then the weighted total maximizes within that. Group stats into one tier (equal weight) with `=`: e.g. `attack=mattack,mdefense` favors attack and mattack equally (tier 1) and mdefense too but less (tier 2). Prefix a tier with `-` to **reduce** a stat's weight instead — pass it via the `=` form so argparse keeps the dash (`--bias=-mattack`) or after a comma (`attack,-mattack`); positive and negative tiers are independent and their order doesn't matter. A soft preference; use `--maximize` for a hard guarantee. |
 | `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. The **top** priority — each stat is driven to its **global** optimum over the build structure (pool/pawn/weight/no-switcheroo) *first*, with your `--STAT`/`--STAT-min`/`--STAT-max`/`--divisor`/`--match` targets applied only **within** that optimum. A target that conflicts with the peak is **infeasible**, not silently relaxed: `--maximize attack --hp-min 3220` behaves like `--attack <max> --hp-min 3220`. Sits above the total-stat objective. |
-| `--minimize STATS`      | Comma-separated stats to **hard-minimize**, highest priority first. Ranked below `--maximize` and above your per-stat targets and the total-stat objective — so, like `--maximize`, it can render a conflicting target infeasible rather than relaxing the minimized value. |
-| `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the maximize/minimize/total objective. |
+| `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the maximize/total objective. |
 | `--require SPEC`        | Force vocations to take at least N of the 90 **level-10→100** levels each, as comma-separated `voc=N` segments: `--require warrior=40,sorcerer=10` (each N 1–90; the minimums must total ≤ 90). A **hard, structural** constraint (holds under `--maximize` too); a required vocation is implicitly allowed (rejected if it's been `--avoid`ed/pawn-excluded). |
 | `--equal-weights`       | Value **hp/st equally** with the other stats in the balanced objective (by default they're discounted — see below). |
 
-**Group keywords** — anywhere a `STATS` list is accepted (`--divisor`, `--nice`, `--bias`,
-`--maximize`, `--minimize`), two shorthands expand to multiple stats:
+**Group keywords** — anywhere a `STATS` list is accepted (`--divisor`, `--bias`,
+`--maximize`), two shorthands expand to multiple stats:
 
 - `all` → every stat (`hp,st,attack,defense,mattack,mdefense`).
 - `combat` → the four combat stats (`attack,defense,mattack,mdefense`).
@@ -268,8 +265,8 @@ proves optimality — this can take a very long time on those degenerate cases.
 The JSON document is **self-describing and round-trippable**. It opens with a
 `command` block — `argv` (the verbatim argument list) and `line` (a shell-quoted
 command) — recording the exact invocation that produced it. It then includes the weight
-class, the full constraints (with `exact`, a `divisor` integer (or null), and a `nice`
-flag per stat), the `match` triples (each `[stat_a, stat_b, tolerance]`, where
+class, the full constraints (with `exact` and a `divisor` integer (or null) per stat),
+the `match` triples (each `[stat_a, stat_b, tolerance]`, where
 tolerance 0 means equal and a positive value is the `~` mode's allowed gap — 10 for
 combat pairs, 100 for `hp~st`), the `pawn` and `no_early_switcheroo` flags and any
 `avoided_vocations`,
@@ -314,23 +311,20 @@ $ ddda-build-solver.py --avoid sorcerer,assassin
 # Force the start as Mage, and require 40 of the 10->100 levels in Warrior
 $ ddda-build-solver.py --start-as mage --require warrior=40
 
-# Heavy character, "nice" HP, machine-readable output
-$ ddda-build-solver.py --weight LL --nice hp --json
-
-# Force every final stat to a "nice" number
-$ ddda-build-solver.py --nice all
-
 # Round every stat to a multiple of 100
 $ ddda-build-solver.py --divisor 100
 
 # Per-stat divisors: attack a multiple of 10, mattack a multiple of 20
 $ ddda-build-solver.py --divisor attack=10,mattack=20
 
+# "Nice" repdigit HP (a multiple of 1111: 3333, 4444, ...), machine-readable output
+$ ddda-build-solver.py --weight LL --divisor hp=1111 --json
+
 # Hard-maximize attack first, then defense (priority order)
 $ ddda-build-solver.py --maximize attack,defense
 
-# Softly favor combat stats, hard-minimize HP, no built-in default floors
-$ ddda-build-solver.py --no-default --bias combat --minimize hp
+# Favor combat stats, de-emphasize HP (negative bias tier)
+$ ddda-build-solver.py --bias=combat,-hp
 
 # Bias attack and mattack equally (tier 1), then mdefense (tier 2)
 $ ddda-build-solver.py --bias attack=mattack,mdefense
@@ -339,7 +333,7 @@ $ ddda-build-solver.py --bias attack=mattack,mdefense
 $ ddda-build-solver.py --bias=attack,-mattack
 
 # Save a result as JSON, then re-render it later (reproduces tables + command line)
-$ ddda-build-solver.py --nice all --weight LL --json > build.json
+$ ddda-build-solver.py --divisor all=50 --weight LL --json > build.json
 $ ddda-build-solver.py --import build.json
 ```
 

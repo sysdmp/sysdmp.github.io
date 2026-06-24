@@ -32,43 +32,37 @@
       "min": 3777,
       "max": 3777,
       "exact": true,
-      "divisor": null,
-      "nice": false
+      "divisor": null
     },
     "st": {
       "min": 4000,
       "max": 4000,
       "exact": true,
-      "divisor": null,
-      "nice": false
+      "divisor": null
     },
     "attack": {
       "min": null,
       "max": null,
       "exact": false,
-      "divisor": null,
-      "nice": false
+      "divisor": null
     },
     "defense": {
       "min": 300,
       "max": 300,
       "exact": true,
-      "divisor": null,
-      "nice": false
+      "divisor": null
     },
     "mattack": {
       "min": null,
       "max": null,
       "exact": false,
-      "divisor": null,
-      "nice": false
+      "divisor": null
     },
     "mdefense": {
       "min": 300,
       "max": 300,
       "exact": true,
-      "divisor": null,
-      "nice": false
+      "divisor": null
     }
   },
   "match": [
@@ -104,11 +98,10 @@
     }
   ],
   "maximize": [],
-  "minimize": [],
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.497,
+  "solve_time_sec": 0.49,
   "builds": [
     {
       "penalty": 0.0,
