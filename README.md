@@ -32,6 +32,8 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
 - **Pawn mode** — excludes the hybrid (Arisen-only) vocations and forces ≥1 of
   the 1→10 levels into the starting vocation.
 - **No early switcheroo** — keep all nine 1→10 levels in the start vocation.
+- **Starting class** — pin the level-1 vocation to one basic (`startPool: [voc]`);
+  by default the solver picks the best-scoring start among the allowed basics.
 - **Weight class** (SS–LL) — sets level-1 stamina.
 
 It also restricts the vocation pool, shares the configuration via the URL, links

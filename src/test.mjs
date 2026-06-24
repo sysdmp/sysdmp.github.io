@@ -215,5 +215,20 @@ check('require for an excluded voc is ignored', rqDrop != null &&
 const rqPawn = solveMaxTotal(highs, { pawn: true, require: { assassin: 90 } });
 check('require for a pawn-excluded hybrid is ignored', (rqPawn.counts.to100.assassin ?? 0) === 0);
 
+// 14. Forced starting class — startPool pins the start to one basic vocation.
+for (const s of BASIC) {
+  const r = solveMaxTotal(highs, { startPool: [s] });
+  check(`forced start ${s}: build.start === ${s}`, r.start === s, `got ${r.start}`);
+}
+// A forced start still honors other settings (a require on another vocation).
+const rqStart = solveMaxTotal(highs, { startPool: ['mage'], require: { warrior: 30 } });
+check('forced start honors a require', rqStart.start === 'mage' && (rqStart.counts.to100.warrior ?? 0) >= 30,
+      `start ${rqStart.start}, to100 warrior ${rqStart.counts.to100.warrior ?? 0}`);
+// Forced start + pawn: the start keeps >=1 of the 1->10 levels.
+const startPawn = solveMaxTotal(highs, { startPool: ['fighter'], pawn: true });
+check('forced start + pawn: start has >=1 in 1->10',
+      startPawn.start === 'fighter' && (startPawn.counts.to10.fighter ?? 0) >= 1,
+      `to10 fighter ${startPawn.counts.to10.fighter ?? 0}`);
+
 console.log(`\n${failures ? failures + ' failure(s)' : 'all tests passed'}`);
 process.exit(failures ? 1 : 0);

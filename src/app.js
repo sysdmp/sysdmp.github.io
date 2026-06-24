@@ -160,6 +160,45 @@ const TOGGLES = [
 ];
 const pawnEl = $('pawn'); // pawn also drives the hybrid-vocation greying below
 
+// --- starting-class selector: force one basic vocation as the start, or "Auto" ---
+// The solver already picks the best start among allowed basics; choosing one here
+// pins it (passed as startPool). "Auto" ("") = let the solver choose (default).
+const startClassEl = $('start-class');
+{
+  const auto = document.createElement('option');
+  auto.value = ''; auto.textContent = 'Auto (best)';
+  startClassEl.appendChild(auto);
+  for (const v of BASIC) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = VOC_LABEL[v];
+    startClassEl.appendChild(opt);
+  }
+}
+$('start-help').title =
+  'Which basic vocation the build starts as (the level-1 class). "Auto" lets the ' +
+  'solver pick the best-scoring start among the allowed basics. Choosing one pins ' +
+  'it — and also allows it (the other two basics can still be used later, just not ' +
+  'as the start).';
+// Forcing a start implies allowing it; also show a note when pawn + forced start
+// combine (pawn forces an extra early level into the start). Re-synced from the
+// start-class change, pawn toggle, and refreshAllCues (URL restore / reset).
+function updateStartClass() {
+  const v = startClassEl.value;
+  if (v) { // force implies allow: check + un-"off" the start's allow row
+    const cb = [...vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require)')]
+      .find((c) => c.value === v);
+    if (cb) { cb.checked = true; cb.closest('.voc').classList.remove('off'); }
+  }
+  const note = $('start-pawn-note');
+  if (v && pawnEl.checked) {
+    note.hidden = false;
+    note.textContent = `⚠ Pawn mode forces at least one of the 1→10 levels into ${VOC_LABEL[v]}, your chosen start.`;
+  } else {
+    note.hidden = true;
+  }
+}
+startClassEl.addEventListener('change', updateStartClass);
+
 // Pawn mode disables the hybrid (Arisen-only) vocations in the UI: their allow +
 // require fields are greyed out and ignored, and the solver excludes them too.
 function updatePawnUI() {
@@ -173,6 +212,7 @@ function updatePawnUI() {
     row.classList.toggle('off', on || !allow.checked);
   }
   updateRequireUI();
+  updateStartClass(); // pawn toggle changes the combined-effect note
 }
 pawnEl.addEventListener('change', updatePawnUI);
 updatePawnUI();
@@ -467,6 +507,7 @@ function collectBounds() {
 // Params (all optional, omitted when at their default):
 //   v   = CSV of allowed vocations (omitted when all are on)
 //   w   = weight class (omitted when M)
+//   sc  = forced starting class (a basic vocation; omitted when Auto)
 //   p   = 1 when pawn mode is on
 //   mv  = 1 when minimize-vocations is on
 //   nx  = 1 when "no pre-10 vocation switch" is on
@@ -486,6 +527,7 @@ function encodeSelections() {
   const allowed = selectedVocs();
   if (allowed.length !== ALL.length) params.set('v', allowed.join(','));
   if (weightEl.value !== DEFAULT_WEIGHT) params.set('w', weightEl.value);
+  if (startClassEl.value) params.set('sc', startClassEl.value);
   for (const t of TOGGLES) if (t.el.checked) params.set(t.param, '1');
   for (const k of STATS) {
     const [mn, mx, dv] = statInputs(k);
@@ -524,6 +566,10 @@ function applySelections(params) {
     }
   }
   if (params.has('w') && WEIGHT_BASE_ST[params.get('w')] != null) weightEl.value = params.get('w');
+  // Forced starting class (a basic vocation, or Auto). refreshAllCues() below runs
+  // updateStartClass(), which re-applies force-implies-allow and the pawn note.
+  const sc = params.get('sc');
+  startClassEl.value = BASIC.includes(sc) ? sc : '';
   for (const t of TOGGLES) t.el.checked = params.get(t.param) === '1';
 
   for (const k of STATS) {
@@ -684,7 +730,11 @@ let highs = null; // HiGHS solver instance, set once the wasm loads
 async function runSolve() {
   if (!highs) return;
   const allowed = selectedVocs();
-  const startPool = allowed.filter((v) => BASIC.includes(v));
+  const allowedBasics = allowed.filter((v) => BASIC.includes(v));
+  // A forced starting class pins the start to that one basic (it's auto-allowed, so
+  // it's normally in `allowed`; fall back to Auto if it somehow isn't). "" = Auto.
+  const forced = startClassEl.value;
+  const startPool = forced && allowed.includes(forced) ? [forced] : allowedBasics;
   status.classList.remove('err');
   if (startPool.length === 0) {
     status.textContent = 'Pick at least one basic vocation (Fighter / Strider / Mage) as a start.';
@@ -771,6 +821,7 @@ function resetSelections() {
   }
   for (const input of vocsEl.querySelectorAll('.voc input.require')) input.value = '';
   for (const t of TOGGLES) t.el.checked = false;
+  startClassEl.value = ''; // Auto
   weightEl.value = DEFAULT_WEIGHT;
   for (const k of STATS) {
     const [mn, mx, dv] = statInputs(k);
