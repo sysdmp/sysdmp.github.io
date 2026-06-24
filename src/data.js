@@ -11,13 +11,13 @@
 
 export const STATS = ['hp', 'st', 'attack', 'defense', 'mattack', 'mdefense'];
 
-// Maximum reachable final value for each stat (Arisen, all vocations allowed),
-// taken from the Python prototype's `--no-default --maximize <stat>`. Used to cap
-// the UI inputs so the solver is never handed an impossible target. st is the
-// largest across weight classes (5005 at LL, since weight only shifts stamina);
-// the others are weight-independent.
+// Per-stat input ceiling for the UI number fields: a generous sanity limit, NOT
+// the true reachable maximum. hp/st cap at 9999, the four combat stats at 999.
+// A target within this ceiling but above what a build can actually reach is still
+// accepted and handed to the solver — it just comes back infeasible (the UI then
+// shows that), so these are about keeping inputs sane, not proving reachability.
 export const STAT_MAX = {
-  hp: 5820, st: 5005, attack: 956, defense: 767, mattack: 866, mdefense: 757,
+  hp: 9999, st: 9999, attack: 999, defense: 999, mattack: 999, mdefense: 999,
 };
 
 // The four "combat" stats (attack/defense/mattack/mdefense). hp and st are the

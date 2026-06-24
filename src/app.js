@@ -271,10 +271,10 @@ for (const k of STATS) {
     const inp = document.createElement('input');
     inp.type = 'number';
     inp.min = kind === 'divisor' ? '1' : '0';
-    // Cap min/max/divisor at the stat's maximum reachable value so the solver is
-    // never handed an impossible target (the `max` attr drives the spinner + our
-    // validation in collectBounds). A divisor above the max has no reachable
-    // nonzero multiple, so it's capped the same way.
+    // Cap min/max/divisor at the stat's input ceiling (hp/st 9999, combat 999) —
+    // a sanity bound, not the reachable max (the `max` attr drives the spinner +
+    // our validation in collectBounds). Targets within it but beyond what a build
+    // can reach are allowed and simply come back infeasible from the solver.
     inp.max = String(STAT_MAX[k]);
     inp.placeholder = kind === 'min' ? 'min' : kind === 'max' ? 'max' : '÷';
     inp.dataset.stat = k;
@@ -484,15 +484,15 @@ function collectBounds() {
       return { error: `${STAT_LABEL[k]} max must be a non-negative whole number.` };
     if (divisor != null && (!Number.isInteger(divisor) || divisor < 1))
       return { error: `${STAT_LABEL[k]} divisor must be a whole number of at least 1.` };
-    // Cap every field at the stat's maximum reachable value: a target above it
-    // can never be met, so reject up front rather than hand the solver an
-    // infeasible (and potentially slow) problem.
+    // A generous input ceiling (hp/st 9999, combat 999) — a sanity bound, not the
+    // true reachable max. Values within it but beyond what a build can reach are
+    // allowed through and simply come back infeasible from the solver.
     if (min != null && min > cap)
-      return { error: `${STAT_LABEL[k]} min (${min}) exceeds the maximum reachable ${cap}.` };
+      return { error: `${STAT_LABEL[k]} min (${min}) is above the ${cap} input limit.` };
     if (max != null && max > cap)
-      return { error: `${STAT_LABEL[k]} max (${max}) exceeds the maximum reachable ${cap}.` };
+      return { error: `${STAT_LABEL[k]} max (${max}) is above the ${cap} input limit.` };
     if (divisor != null && divisor > cap)
-      return { error: `${STAT_LABEL[k]} divisor (${divisor}) exceeds the maximum reachable ${cap}; no multiple is reachable.` };
+      return { error: `${STAT_LABEL[k]} divisor (${divisor}) is above the ${cap} input limit.` };
     // A divisor drops the max (mirrors the prototype), so don't enforce min<=max
     // against a max that won't apply.
     if (divisor == null && min != null && max != null && min > max)
