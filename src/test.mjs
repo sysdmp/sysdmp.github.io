@@ -186,5 +186,34 @@ const wsc = (b) => STATS.reduce((a, k) => a + BALANCE_WEIGHTS[k] * b.stats[k], 0
 check('minimize-vocations balanced score <= unconstrained',
       wsc(minv) <= wsc(plain) + 1e-6, `${wsc(plain).toFixed(1)} -> ${wsc(minv).toFixed(1)}`);
 
+// 13. Required vocations — { voc: minLevels }: each takes >= its min of the 90 to100.
+const rq = solveMaxTotal(highs, { require: { warrior: 40 } });
+check('require: warrior gets >=40 of to100', (rq.counts.to100.warrior ?? 0) >= 40,
+      `to100 warrior ${rq.counts.to100.warrior ?? 0}`);
+const rq90 = solveMaxTotal(highs, { require: { sorcerer: 90 } });
+check('require 90 fills to100 with the required voc',
+      (rq90.counts.to100.sorcerer ?? 0) === 90, `to100 sorcerer ${rq90.counts.to100.sorcerer ?? 0}`);
+// Per-vocation minimums: different amounts for each required vocation.
+const rq2 = solveMaxTotal(highs, { require: { warrior: 40, sorcerer: 10 } });
+check('require per-voc: warrior >=40 and sorcerer >=10',
+      (rq2.counts.to100.warrior ?? 0) >= 40 && (rq2.counts.to100.sorcerer ?? 0) >= 10,
+      `warrior ${rq2.counts.to100.warrior ?? 0}, sorcerer ${rq2.counts.to100.sorcerer ?? 0}`);
+let reqThrew = false;
+try { solveMaxTotal(highs, { require: { warrior: 60, sorcerer: 50 } }); }
+catch { reqThrew = true; }
+check('require sum 60+50 > 90 is infeasible', reqThrew);
+// Require is structural, so it survives the maximize pre-pass.
+const rqMax = solveMaxTotal(highs, { maximize: 'mattack', require: { warrior: 30 } });
+check('require holds under maximize', (rqMax.counts.to100.warrior ?? 0) >= 30,
+      `to100 warrior ${rqMax.counts.to100.warrior ?? 0}`);
+// Robustness: a require whose voc isn't in the allowed pool is silently dropped.
+const rqDrop = solveMaxTotal(highs, {
+  allowed: ALL.filter((v) => v !== 'warrior'), require: { warrior: 90 },
+});
+check('require for an excluded voc is ignored', rqDrop != null &&
+      !Object.keys(rqDrop.counts.to100).includes('warrior'));
+const rqPawn = solveMaxTotal(highs, { pawn: true, require: { assassin: 90 } });
+check('require for a pawn-excluded hybrid is ignored', (rqPawn.counts.to100.assassin ?? 0) === 0);
+
 console.log(`\n${failures ? failures + ' failure(s)' : 'all tests passed'}`);
 process.exit(failures ? 1 : 0);

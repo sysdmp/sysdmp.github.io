@@ -83,14 +83,20 @@
   .voc {
     display: flex; align-items: center; gap: .5rem; padding: .45rem .6rem;
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
-    cursor: pointer; user-select: none; transition: border-color .12s, opacity .12s;
+    user-select: none; transition: border-color .12s, opacity .12s;
   }
   .voc:hover { border-color: var(--gold); }
-  .voc input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
+  /* row layout: name (left, fills the row) | require field + ⓘ (right) */
+  .voc-allow { display: flex; align-items: center; gap: .5rem; flex: 1; cursor: pointer; min-width: 0; }
+  .voc-allow input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
+  .voc-require { display: flex; align-items: center; gap: .25rem; font-size: .68rem; color: var(--dim); }
+  .voc input.require { width: 2.6rem; height: auto; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 5px; padding: .2rem .3rem; font: inherit;
+    font-size: .72rem; font-variant-numeric: tabular-nums; text-align: center; }
+  .voc input.require:focus { outline: none; border-color: var(--gold); }
+  .voc input:disabled { cursor: not-allowed; opacity: .5; }
   .voc.off { opacity: .42; }
-  .voc .tag { font-size: .68rem; color: var(--dim); margin-left: auto; }
-  .voc .tag.basic { color: var(--blue); }
-  .voc .tag.hybrid { color: var(--gold); }
+  .voc.required { border-color: var(--gold); }
   .pawn { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
   .pawn .info { margin-left: -.15rem; } /* flex gap already spaces it from the label */
   .pawn input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
@@ -259,7 +265,7 @@
   </header>
 
   <div class="panel">
-    <h2>Vocations to allow</h2>
+    <h2>Vocation choice and minimum requirements<i class="info" title="Check a vocation to allow it anywhere in the build. Enter a number in a vocation's box to require it to take at least that many of the 90 level-10→100 levels (that also allows it). The required minimums across all vocations must total ≤ 90. See the ⓘ next to a box for details.">ⓘ</i></h2>
     <div class="vocs" id="vocs"></div>
     <label class="pawn">
       <input type="checkbox" id="pawn"><span>Build for a <b>pawn</b></span><i class="info" title="Excludes hybrid vocations and forces an extra level in the starting class due to unavoidable quest experience.">ⓘ</i></label>

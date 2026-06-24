@@ -99,19 +99,47 @@ const rightCol = document.createElement('div');
 leftCol.className = rightCol.className = 'voc-col';
 vocsEl.append(leftCol, rightCol);
 
+// Mark rows that currently carry a requirement (a non-empty, enabled require field)
+// so they can be styled. Called from the allow/require row handlers, updatePawnUI,
+// and refreshAllCues (URL restore / reset).
+function updateRequireUI() {
+  for (const input of vocsEl.querySelectorAll('.voc input.require')) {
+    const on = input.value !== '' && !input.disabled;
+    input.closest('.voc').classList.toggle('required', on);
+  }
+}
+
 for (const v of ALL) {
   const isBasic = BASIC.includes(v);
-  const cls = isBasic ? 'basic' : HYBRID.has(v) ? 'hybrid' : 'advanced';
-  const label = document.createElement('label');
-  label.className = 'voc';
-  if (HYBRID.has(v)) label.dataset.hybrid = '1';
-  label.innerHTML =
-    `<input type="checkbox" value="${v}" checked>` +
-    `<span>${colorVoc(v)}</span>` +
-    `<span class="tag ${cls}">${cls}</span>`;
-  const cb = label.querySelector('input');
-  cb.addEventListener('change', () => label.classList.toggle('off', !cb.checked));
-  (isBasic ? leftCol : rightCol).appendChild(label);
+  // A row is a <div> holding the allow checkbox (in its own <label> so clicking the
+  // name toggles allow) plus a per-vocation "minimum levels in 10→100" number field
+  // (blank = no requirement). The vocation id lives in data-voc since the field's
+  // value is the level count. Vocation color (via colorVoc) conveys basic/advanced/
+  // hybrid; hybrids are also tagged data-hybrid for pawn-mode greying.
+  const row = document.createElement('div');
+  row.className = 'voc';
+  if (HYBRID.has(v)) row.dataset.hybrid = '1';
+  row.innerHTML =
+    `<label class="voc-allow"><input type="checkbox" value="${v}" checked>` +
+    `<span>${colorVoc(v)}</span></label>` +
+    `<span class="voc-require">` +
+    `<input type="number" class="require" data-voc="${v}" min="1" max="90" step="1" placeholder="–" ` +
+    `aria-label="Minimum levels in 10→100">` +
+    `<i class="info" title="Require this vocation to take at least this many of the 90 ` +
+    `level-10→100 levels. Leave blank for no requirement. Setting it also allows the ` +
+    `vocation; the required minimums across all vocations must total ≤ 90.">ⓘ</i></span>`;
+  const allow = row.querySelector('input[type="checkbox"]:not(.require)');
+  const reqInput = row.querySelector('input.require');
+  allow.addEventListener('change', () => {
+    row.classList.toggle('off', !allow.checked);
+    if (!allow.checked) reqInput.value = ''; // un-allowing clears any requirement
+    updateRequireUI();
+  });
+  reqInput.addEventListener('input', () => {
+    if (reqInput.value !== '') { allow.checked = true; row.classList.remove('off'); } // require implies allow
+    updateRequireUI();
+  });
+  (isBasic ? leftCol : rightCol).appendChild(row);
 }
 
 // Tuck the option checkboxes and the weight-class selector into the left column,
@@ -132,23 +160,28 @@ const TOGGLES = [
 ];
 const pawnEl = $('pawn'); // pawn also drives the hybrid-vocation greying below
 
-// Pawn mode disables the hybrid (Arisen-only) vocations in the UI: their
-// checkboxes are greyed out and ignored, and the solver excludes them too.
+// Pawn mode disables the hybrid (Arisen-only) vocations in the UI: their allow +
+// require fields are greyed out and ignored, and the solver excludes them too.
 function updatePawnUI() {
   const on = pawnEl.checked;
-  for (const label of vocsEl.querySelectorAll('.voc[data-hybrid]')) {
-    const cb = label.querySelector('input');
-    cb.disabled = on;
-    label.classList.toggle('off', on || !cb.checked);
+  for (const row of vocsEl.querySelectorAll('.voc[data-hybrid]')) {
+    const allow = row.querySelector('input[type="checkbox"]:not(.require)');
+    const reqInput = row.querySelector('input.require');
+    allow.disabled = on;
+    reqInput.disabled = on;
+    if (on) reqInput.value = ''; // a pawn can't require a hybrid
+    row.classList.toggle('off', on || !allow.checked);
   }
+  updateRequireUI();
 }
 pawnEl.addEventListener('change', updatePawnUI);
 updatePawnUI();
 
 const selectedVocs = () =>
-  // Scope to .voc: the option toggles (pawn/min-voc/no-pre10) also live in #vocs,
-  // and their checkbox value is "on" — they must not leak into the vocation list.
-  [...vocsEl.querySelectorAll('.voc input:checked')].map((cb) => cb.value);
+  // Scope to .voc and exclude .require: the option toggles (pawn/min-voc/no-pre10)
+  // also live in #vocs (value "on"), and each row now also has a require field —
+  // neither must leak into the allowed-vocation list.
+  [...vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require):checked')].map((cb) => cb.value);
 
 // --- populate the weight-class selector (sets level-1 stamina) ---
 // Only base stamina affects the solve; the body-weight range, stamina-recovery
@@ -188,8 +221,6 @@ weightEl.addEventListener('change', updateWeightInfo);
 updateWeightInfo();
 
 // --- build the stat range inputs (min / max per stat) ---
-// Default minimum floors pre-populated for convenience (user can clear/change).
-const DEFAULT_MIN = { hp: 3500, defense: 300, mdefense: 300 };
 const rangesEl = $('ranges');
 for (const k of STATS) {
   const name = document.createElement('span');
@@ -208,7 +239,6 @@ for (const k of STATS) {
     inp.placeholder = kind === 'min' ? 'min' : kind === 'max' ? 'max' : '÷';
     inp.dataset.stat = k;
     inp.dataset.kind = kind;
-    if (kind === 'min' && DEFAULT_MIN[k] != null) inp.value = DEFAULT_MIN[k];
     inp.addEventListener('input', updateExactCues);
     return inp;
   };
@@ -276,32 +306,17 @@ for (const k of STATS) {
   opt.textContent = STAT_LABEL[k];
   maximizeEl.appendChild(opt);
 }
-let prevMax = ''; // the stat that was maximized before the last change (for default restore)
 function updateMaximizeCue() {
   const max = maximizeEl.value;
   maximizeEl.classList.toggle('on', max !== '');
   // The maximized stat is driven to its global peak, so its own min/max/divisor/
-  // bias/match inputs can't apply — disable them and dim the row's label.
+  // bias/match inputs can't apply — disable them and dim the row's label. (The
+  // collectors skip disabled controls, so any value the user typed there is ignored.)
   for (const k of STATS) {
     const off = k === max;
     for (const el of [...statInputs(k), biasSelect(k), matchSelect(k)]) el.disabled = off;
     rangesEl.querySelector(`.rname[data-stat="${k}"]`)?.classList.toggle('maxed', off);
   }
-  // A greyed-out min still showing its prefilled default reads as an active bound.
-  // Blank the newly-maximized stat's min if it's the untouched default; restore the
-  // default on the stat we just stopped maximizing if its (disabled) min was left
-  // blank. Only the previously-maximized stat is restored, so a min the user cleared
-  // by hand on some other stat is never repopulated.
-  if (max && DEFAULT_MIN[max] != null) {
-    const [mn] = statInputs(max);
-    if (mn.value === String(DEFAULT_MIN[max])) mn.value = '';
-  }
-  if (prevMax && prevMax !== max && DEFAULT_MIN[prevMax] != null) {
-    const [mn] = statInputs(prevMax);
-    if (mn.value === '') mn.value = DEFAULT_MIN[prevMax];
-  }
-  prevMax = max;
-  updateExactCues(); // min may have been blanked/restored
 }
 maximizeEl.addEventListener('change', updateMaximizeCue);
 
@@ -338,6 +353,27 @@ const matchSelect = (k) =>
 // The stat currently selected to maximize, or null ("— none —").
 function collectMaximize() {
   return maximizeEl.value || null;
+}
+
+// Collect per-vocation required minimums as { voc: minLevels }. Returns
+// { require, error }: error is set when any value is out of range or the minimums sum
+// past the 90 level-10→100 levels. Skips pawn-disabled (greyed) require fields.
+function collectRequire() {
+  const req = {};
+  let sum = 0;
+  for (const input of vocsEl.querySelectorAll('.voc input.require')) {
+    if (input.disabled || input.value === '') continue;
+    const n = Number(input.value);
+    if (!Number.isInteger(n) || n < 1 || n > 90)
+      return { error: `Required minimum for ${VOC_LABEL[input.dataset.voc]} must be a ` +
+        'whole number from 1 to 90.' };
+    req[input.dataset.voc] = n;
+    sum += n;
+  }
+  if (sum > 90)
+    return { error: `Required minimums total ${sum}, but only 90 levels are available ` +
+      '(10→100). Lower them so they sum to 90 or less.' };
+  return { require: req };
 }
 
 // Collect the per-stat bias map (omitting neutral 0). Skips the maximized stat,
@@ -425,6 +461,8 @@ function collectBounds() {
 //   <stat>_bias  = bias (-5..5)
 //   <stat>_match = "=partner" or "~partner" (emitted for both ends of a pair)
 //   max  = the single stat to maximize (ignores all other settings)
+//   req  = CSV of "voc:minLevels" pairs (each voc takes >= minLevels of the 90
+//          level-10->100 levels), e.g. "warrior:40,sorcerer:10"
 // Stat keys are the canonical short names (hp, st, attack, ...).
 
 // Read the form into URLSearchParams (only non-default values).
@@ -446,6 +484,12 @@ function encodeSelections() {
   }
   const maximize = collectMaximize();
   if (maximize) params.set('max', maximize);
+  // Required vocations: "voc:minLevels" pairs. Read the DOM directly (skip pawn-greyed
+  // fields) so encoding never depends on collectRequire's validation passing.
+  const reqPairs = [...vocsEl.querySelectorAll('.voc input.require')]
+    .filter((inp) => !inp.disabled && inp.value !== '')
+    .map((inp) => `${inp.dataset.voc}:${inp.value}`);
+  if (reqPairs.length) params.set('req', reqPairs.join(','));
   return params;
 }
 
@@ -453,12 +497,13 @@ function encodeSelections() {
 function applySelections(params) {
   if ([...params.keys()].length === 0) return false;
 
-  // Vocations: only those listed stay checked (default = all on). Scope to .voc —
-  // the option toggles also live in #vocs and have no .voc ancestor (closest()
-  // would return null and throw), and must not be driven by the vocation list.
+  // Vocations: only those listed stay checked (default = all on). Scope to the allow
+  // checkbox (.voc input :not(.require)) — the option toggles also live in #vocs with
+  // no .voc ancestor (closest() would throw), and the per-row require field must not be
+  // driven by the allow list (it's restored from `req` below).
   if (params.has('v')) {
     const want = new Set(params.get('v').split(',').filter(Boolean));
-    for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]')) {
+    for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require)')) {
       cb.checked = want.has(cb.value);
       cb.closest('.voc').classList.toggle('off', !cb.checked);
     }
@@ -481,6 +526,24 @@ function applySelections(params) {
   // Maximize dropdown.
   const maxStat = params.get('max');
   maximizeEl.value = STATS.includes(maxStat) ? maxStat : '';
+  // Required vocations: parse "voc:minLevels" pairs into a map, then fill each row's
+  // require field. A set requirement also force-checks its row's allow (require implies
+  // allow). Unknown vocs / out-of-range minimums are ignored.
+  const reqMap = {};
+  for (const pair of (params.get('req') ?? '').split(',').filter(Boolean)) {
+    const [v, raw] = pair.split(':');
+    const n = Number(raw);
+    if (Number.isInteger(n) && n >= 1 && n <= 90) reqMap[v] = n;
+  }
+  for (const input of vocsEl.querySelectorAll('.voc input.require')) {
+    const n = reqMap[input.dataset.voc];
+    input.value = n != null ? n : '';
+    if (n != null) {
+      const row = input.closest('.voc');
+      row.querySelector('input[type="checkbox"]:not(.require)').checked = true;
+      row.classList.remove('off');
+    }
+  }
   refreshAllCues();
   return true;
 }
@@ -619,6 +682,12 @@ async function runSolve() {
     status.classList.add('err');
     return;
   }
+  const { require: requireVocs, error: requireError } = collectRequire();
+  if (requireError) {
+    status.textContent = requireError;
+    status.classList.add('err');
+    return;
+  }
   const weight = weightEl.value;
   const bias = collectBias();
   const match = collectMatch();
@@ -628,7 +697,8 @@ async function runSolve() {
   status.textContent = 'Solving…';
   try {
     const t0 = performance.now();
-    const build = solveMaxTotal(highs, { allowed, startPool, bounds, weight, bias, match, maximize, ...toggles });
+    const build = solveMaxTotal(highs, { allowed, startPool, bounds, weight, bias, match, maximize,
+                                         require: requireVocs, ...toggles });
     const ms = (performance.now() - t0).toFixed(0);
     const kind = toggles.pawn ? 'pawn' : 'Arisen';
     const goal = maximize ? ` <span class="wtag">— max ${STAT_LABEL[maximize]}</span>` : '';
@@ -676,19 +746,20 @@ $('cfg-copy').addEventListener('click', async () => {
 
 // --- reset all inputs to their initial defaults ---
 // Mirrors the fresh, no-params page state: all vocations on, weight M, pawn off,
-// default min floors pre-filled, everything else cleared, biases neutral.
+// all stat fields blank, biases neutral, no requirements.
 function resetSelections() {
-  // Only the vocation checkboxes (.voc); the option toggles also live in vocsEl
-  // now but are reset separately below.
-  for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]')) {
+  // Allow checkboxes back on (the option toggles + require fields also live in vocsEl
+  // but are reset separately — scope to the allow box only).
+  for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require)')) {
     cb.checked = true;
     cb.closest('.voc').classList.remove('off');
   }
+  for (const input of vocsEl.querySelectorAll('.voc input.require')) input.value = '';
   for (const t of TOGGLES) t.el.checked = false;
   weightEl.value = DEFAULT_WEIGHT;
   for (const k of STATS) {
     const [mn, mx, dv] = statInputs(k);
-    mn.value = DEFAULT_MIN[k] != null ? DEFAULT_MIN[k] : '';
+    mn.value = '';
     mx.value = '';
     dv.value = '';
     biasSelect(k).value = '0';

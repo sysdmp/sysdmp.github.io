@@ -68,7 +68,8 @@ function expr(terms) {
 // mirrors the prototype's --minimize-vocations. Only meaningful for the balanced
 // objective (objStat == null).
 function buildLP({ start, pool, bounds, baseSt, bias, pawn, match,
-                   objStat = null, pin = null, minVoc = false, noPre10Switch = false }) {
+                   objStat = null, pin = null, minVoc = false, noPre10Switch = false,
+                   reqVocs = {} }) {
   const base = { ...basic[start].init };
   if (baseSt != null) base.st = baseSt;
 
@@ -132,6 +133,13 @@ function buildLP({ start, pool, bounds, baseSt, bias, pawn, match,
   // No pre-10 switch: all 9 of the 1->10 levels stay in the start vocation
   // (you can't change vocation before level 10 without the Hard Mode trick).
   if (noPre10Switch) cons.push(`nopre10: + ${varName('to10', start)} = ${TIER_SIZE.to10}`);
+
+  // Required vocations: each takes >= its minimum of the 90 level-10->100 levels.
+  // (A sum of minimums > 90 is naturally infeasible via the sz_to100 block-size
+  // constraint; the UI validates that case for a clear message.)
+  for (const [v, n] of Object.entries(reqVocs)) {
+    cons.push(`require_${v}: + ${varName('to100', v)} >= ${n}`);
+  }
 
   // Lexicographic-maximize pin: value(stat) >= achieved optimum.
   if (pin) {
@@ -262,6 +270,14 @@ function decode(sol, pool) {
  *                                    a lower stat total.
  * @param {boolean} [opts.noPre10Switch] forbid changing vocation before level 10:
  *                                    all nine 1→10 levels stay in the start vocation.
+ * @param {Object<string,number>} [opts.require] per-vocation minimum level count in the
+ *                                    10→100 range: { voc: minLevels }. Each listed
+ *                                    vocation must take ≥ its value of that tier's 90
+ *                                    levels (each clamped to 1..90). Entries whose voc
+ *                                    isn't in the allowed pool (excluded, or a pawn-dropped
+ *                                    hybrid) are ignored. A hard constraint (structural:
+ *                                    applies in the maximize pre-pass too). The sum of the
+ *                                    minimums exceeding 90 is infeasible.
  * @returns {{start, counts, stats, total}} the best feasible build.
  * @throws if no allowed build satisfies the constraints.
  */
@@ -276,6 +292,14 @@ export function solveMaxTotal(highs, opts = {}) {
   const minVoc = !!opts.minimizeVocations;
   const noPre10Switch = !!opts.noPre10Switch;
   const baseSt = opts.weight != null ? WEIGHT_BASE_ST[opts.weight] : null;
+  // Required vocations: { voc: minLevels } — each must take >= minLevels of the 90
+  // level-10->100 (to100) levels. Normalize after `pool` is set so we drop any entry
+  // whose voc isn't actually allowed (excluded, or a hybrid removed by pawn mode) —
+  // that keeps it robust without a variable for it to bound. Each min is clamped 1..90.
+  const reqVocs = {};
+  for (const [v, n] of Object.entries(opts.require ?? {})) {
+    if (pool.includes(v)) reqVocs[v] = Math.max(1, Math.min(90, Math.round(n)));
+  }
 
   // Force HiGHS to prove true optimality. Its default MIP gap (~0.01% relative)
   // lets it stop early on a near-optimal incumbent — which here can mean leaving
@@ -288,7 +312,8 @@ export function solveMaxTotal(highs, opts = {}) {
     new Set(['to10', 'to100', 'to200'].flatMap((t) => Object.keys(counts[t] || {}))).size;
 
   // The per-start model config shared by both passes; objStat/pin vary per pass.
-  const modelBase = { pool, bounds, baseSt, bias, pawn: opts.pawn, match, minVoc, noPre10Switch };
+  const modelBase = { pool, bounds, baseSt, bias, pawn: opts.pawn, match, minVoc, noPre10Switch,
+                      reqVocs };
 
   const solve = (objStat, pin, override = {}) => {
     const results = [];
