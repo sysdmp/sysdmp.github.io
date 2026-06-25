@@ -179,7 +179,6 @@ its min as a floor; an exact `--<stat>` value overrides it.
 | `--bias STATS`          | Comma-separated **priority tiers** of stats to softly favor — the first tier favored most, each later tier less. Positively-biased stats are guaranteed to grow (an equal-share floor proportional to their tier), then the weighted total maximizes within that. Group stats into one tier (equal weight) with `=`: e.g. `attack=mattack,mdefense` favors attack and mattack equally (tier 1) and mdefense too but less (tier 2). Prefix a tier with `-` to **reduce** a stat's weight instead — pass it via the `=` form so argparse keeps the dash (`--bias=-mattack`) or after a comma (`attack,-mattack`); positive and negative tiers are independent and their order doesn't matter. A soft preference; use `--maximize` for a hard guarantee. |
 | `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. The **top** priority — each stat is driven to its **global** optimum over the build structure (pool/pawn/weight/no-switcheroo) *first*, with your `--STAT`/`--STAT-min`/`--STAT-max`/`--divisor`/`--match` targets applied only **within** that optimum. A target that conflicts with the peak is **infeasible**, not silently relaxed: `--maximize attack --hp-min 3220` behaves like `--attack <max> --hp-min 3220`. Sits above the total-stat objective. |
 | `--require SPEC`        | Force a vocation to take at least N levels in a range, as comma-separated segments: `voc=N` (the **10→100** range) or `voc:RANGE=N` where RANGE is `10` / `100` / `200`. E.g. `--require warrior=40,fighter:10=9,sorcerer:200=30`. Ranges hold 9 / 90 / 100 levels; each range's minimums must fit, and **1→10 is basic-vocations only**. A **hard, structural** constraint (holds under `--maximize` too); a required vocation is implicitly allowed (rejected if `--avoid`ed/pawn-excluded). |
-| `--equal-weights`       | Value **hp/st equally** with the other stats in the balanced objective (by default they're discounted — see below). |
 
 **Group keywords** — anywhere a `STATS` list is accepted (`--divisor`, `--bias`,
 `--maximize`), two shorthands expand to multiple stats:
@@ -187,11 +186,10 @@ its min as a floor; an exact `--<stat>` value overrides it.
 - `all` → every stat (`hp,st,attack,defense,mattack,mdefense`).
 - `combat` → the four combat stats (`attack,defense,mattack,mdefense`).
 
-**Balanced objective (no `--bias`):** by default the solver maximizes a *weighted*
-total of the final stats, with **hp and st discounted** (weight 0.1 vs 1.0 for the
-combat stats). hp/st have large raw values and grow cheaply, so this stops the
-balanced build from piling level-ups into them at the expense of combat stats. Pass
-`--equal-weights` to value every stat equally instead.
+**Balanced objective (no `--bias`):** the solver maximizes a *weighted* total of
+the final stats, with **hp and st discounted** (weight 0.1 vs 1.0 for the combat
+stats). hp/st have large raw values and grow cheaply, so this stops the balanced
+build from piling level-ups into them at the expense of combat stats.
 
 ### Character
 

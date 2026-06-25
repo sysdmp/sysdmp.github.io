@@ -85,8 +85,8 @@ function pyArgs(opts) {
       (sign < 0 ? '-' : '') + stats.join('='));
     args.push(`--bias=${segs.join(',')}`);
   }
-  // hp/st are NOT discounted in the web "balanced" objective unless we ask Python
-  // to match; the web default discounts them, so DON'T pass --equal-weights.
+  // Both solvers always discount hp/st in the balanced objective (weight 0.1),
+  // so the default Python weights already match the web side.
   return args;
 }
 

@@ -449,7 +449,7 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
 
 def solve_ilp(cons, count=1, rounding=None, match=(),
               base_st=None, allowed=None,
-              maximize=(), bias_tiers=(), weights=None, start_pool=None,
+              maximize=(), bias_tiers=(), start_pool=None,
               verbose=False, time_limit=5, pawn=False, no_early_switch=False,
               require=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
@@ -489,10 +489,6 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
     also get an equal-share growth floor; negative tiers only lower the weight. A
     soft preference traded off against the other stats, not a hard ordering.
 
-    `weights`: per-stat weights for the balanced total-stat objective; defaults
-    to BALANCE_WEIGHTS (hp/st discounted to 0.1). Pass all-1.0 weights to value
-    every stat equally.
-
     `verbose`: when True, run CBC with msg=True so it prints its own solver log.
 
     `time_limit`: per-CBC-solve cap in seconds; None disables it (let CBC grind
@@ -519,7 +515,7 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         # timed out: usable iff it produced variable values
         return any(v.value() is not None for v in prob.variables())
     rounding = dict(rounding or {})
-    weights = weights if weights is not None else BALANCE_WEIGHTS
+    weights = BALANCE_WEIGHTS
     adv_pool = list(allowed) if allowed is not None else ALL
     starts = list(start_pool) if start_pool is not None else BASIC
     # basic vocations usable in the 1->10 range: those in the (avoid-filtered) pool
@@ -836,9 +832,6 @@ def parse_args():
                               "not silently lowered (--maximize attack --hp-min 3220\n"
                               "is like --attack <max> --hp-min 3220).\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
-    g_goals.add_argument('--equal-weights', action='store_true',
-                         help="value hp/st equally with the other stats in the\n"
-                              "balanced objective (by default they are discounted)")
 
     g_char = ap.add_argument_group(c('\U0001f4aa  character', 'bold'))
     g_char.add_argument('--weight', choices=list(WEIGHTS), default='M', metavar='CLASS',
@@ -1663,7 +1656,6 @@ def main():
                            base_st=base_st,
                            allowed=allowed, maximize=maximize,
                            bias_tiers=bias_tiers,
-                           weights={k: 1.0 for k in STATS} if a.equal_weights else None,
                            start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
                            time_limit=None if a.posixly_correct else 5, pawn=a.pawn,
                            no_early_switch=a.no_early_switcheroo, require=require)
