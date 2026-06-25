@@ -874,10 +874,6 @@ def parse_args():
     g_solver.add_argument('--verbose-cbc', action='store_true',
                           help='ilp: print the CBC solver log (msg=True);\n'
                                'ignored under --json to keep output parseable')
-    g_solver.add_argument('--posixly-correct', action='store_true',
-                          help='ilp: remove the per-solve CBC time cap, letting\n'
-                               'it grind to a proven-optimal solution however long\n'
-                               'that takes (some flag combos can run very long)')
 
     g_out = ap.add_argument_group(c('\U0001f5a5\U0000fe0f   output', 'bold'))
     g_out.add_argument('--json', action='store_true',
@@ -1657,7 +1653,7 @@ def main():
                            allowed=allowed, maximize=maximize,
                            bias_tiers=bias_tiers,
                            start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
-                           time_limit=None if a.posixly_correct else 5, pawn=a.pawn,
+                           time_limit=5, pawn=a.pawn,
                            no_early_switch=a.no_early_switcheroo, require=require)
         solve_time = time.perf_counter() - _t0
         if not builds:

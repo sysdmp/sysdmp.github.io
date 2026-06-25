@@ -237,18 +237,16 @@ this rule.
 | `--seed N`   | Base RNG seed; runs are reproducible per seed (default 0). Affects `search` only.  |
 | `--seeds N`  | `search`: number of random restarts (default 8).                                   |
 | `--iters N`  | `search`: iterations per seed (default 1,500,000).                                 |
-| `--posixly-correct` | `ilp`: remove the per-solve CBC time cap, letting it grind to a proven-optimal solution however long that takes. |
 
 The ILP solver is exact and fast; it evaluates every allowed start vocation and picks
 the one whose build best satisfies the objective (ties fall back to `fighter` /
 `strider` / `mage` order), enumerating distinct builds via no-good cuts when
 `--count > 1`. The `search` solver is a stochastic hill-climb used only as a fallback.
 
-By default each CBC solve is capped at a few seconds: some flag combinations (e.g.
-`--divisor 100` with a continuous `--bias`) leave CBC holding the optimum but unable to
-*prove* it quickly, so it returns the best feasible incumbent instead of hanging. The
-build is still valid. Pass `--posixly-correct` to drop the cap and let CBC run until it
-proves optimality — this can take a very long time on those degenerate cases.
+Each CBC solve is capped at a few seconds: some flag combinations (e.g. `--divisor 100`
+with a continuous `--bias`) leave CBC holding the optimum but unable to *prove* it
+quickly, so it returns the best feasible incumbent instead of hanging. The build is
+still valid.
 
 ### Output control
 
