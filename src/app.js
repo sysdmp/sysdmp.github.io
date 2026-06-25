@@ -7,7 +7,7 @@ import { loadHighs } from './highs-loader.js';
 import { solveMaxTotal, sameStatsBuilds } from './solver.js';
 import {
   BASIC, ALL, STATS, WEIGHT_CLASSES, WEIGHT_BASE_ST, DEFAULT_WEIGHT,
-  WEIGHT_RANGE, WEIGHT_STAREGEN, WEIGHT_ENCUMBRANCE,
+  WEIGHT_RANGE, WEIGHT_STAREGEN, WEIGHT_ENCUMBRANCE, TIERS,
   COMBAT, VITALS, MATCH_TILDE_TOL, MATCH_PARTNERS, STAT_MAX, owocUrl, QUOTES, statsOf,
 } from './data.js';
 
@@ -94,6 +94,10 @@ initTheme();
 // the rest on the right (advanced first, then hybrids — that's ALL order minus
 // the basics). Each column is its own container under #vocs.
 const vocsEl = $('vocs');
+// The "allow" checkbox of a vocation row, vs. the per-tier require inputs that also
+// live in the row (.require) — these helpers centralize that `:not(.require)` query.
+const allowCb = (row) => row.querySelector('input[type="checkbox"]:not(.require)');
+const allowCbs = () => [...vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require)')];
 const leftCol = document.createElement('div');
 const rightCol = document.createElement('div');
 leftCol.className = rightCol.className = 'voc-col';
@@ -133,7 +137,7 @@ function updateRequireUI() {
   // Per tier: when the enabled fields sum to exactly the tier size (no levels left to
   // allocate), highlight all of that tier's fields green via `.tier-full`.
   const tierFull = {};
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     const fields = [...vocsEl.querySelectorAll(`.voc input.require[data-tier="${tier}"]`)];
     const sum = fields.reduce((a, inp) =>
       a + (inp.disabled || inp.value === '' ? 0 : Math.floor(Number(inp.value)) || 0), 0);
@@ -180,11 +184,6 @@ function clampReqField(input) {
 // and 100→200. Blank = no requirement; setting one implies allowing the vocation.
 // Vocation color (via colorVoc) conveys basic/advanced/hybrid; hybrids are tagged
 // data-hybrid for pawn-mode greying.
-const REQ_TIERS = [
-  ['to10', '1→10', 9],
-  ['to100', '10→100', 90],
-  ['to200', '100→200', 100],
-];
 const reqField = (v, tier, size) =>
   `<input type="number" class="require" data-voc="${v}" data-tier="${tier}" ` +
   `min="1" max="${size}" step="1" placeholder="–" aria-label="${v} minimum levels in ${tier}">`;
@@ -201,7 +200,7 @@ for (const v of ALL) {
     `<label class="voc-allow"><input type="checkbox" value="${v}" checked>` +
     `<span>${colorVoc(v)}</span></label>` +
     `<span class="voc-require">${f10}${reqField(v, 'to100', 90)}${reqField(v, 'to200', 100)}</span>`;
-  const allow = row.querySelector('input[type="checkbox"]:not(.require)');
+  const allow = allowCb(row);
   const reqInputs = [...row.querySelectorAll('input.require')];
   allow.addEventListener('change', () => {
     row.classList.toggle('off', !allow.checked);
@@ -261,8 +260,7 @@ $('start-help').title =
 function updateStartClass() {
   const v = startClassEl.value;
   if (v) { // force implies allow: check + un-"off" the start's allow row
-    const cb = [...vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require)')]
-      .find((c) => c.value === v);
+    const cb = allowCbs().find((c) => c.value === v);
     if (cb) { cb.checked = true; cb.closest('.voc').classList.remove('off'); }
   }
   // Pawn + a forced start: a pawn must take ≥1 of its 1→10 levels in the start
@@ -294,7 +292,7 @@ startClassEl.addEventListener('change', updateStartClass);
 function updatePawnUI() {
   const on = pawnEl.checked;
   for (const row of vocsEl.querySelectorAll('.voc[data-hybrid]')) {
-    const allow = row.querySelector('input[type="checkbox"]:not(.require)');
+    const allow = allowCb(row);
     allow.disabled = on;
     for (const inp of row.querySelectorAll('input.require')) {
       inp.disabled = on;
@@ -310,10 +308,9 @@ pawnEl.addEventListener('change', updatePawnUI);
 updatePawnUI();
 
 const selectedVocs = () =>
-  // Scope to .voc and exclude .require: the option toggles (pawn/no-pre10)
-  // also live in #vocs (value "on"), and each row now also has a require field —
-  // neither must leak into the allowed-vocation list.
-  [...vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require):checked')].map((cb) => cb.value);
+  // allowCbs() excludes the .require inputs and the option toggles (pawn/no-pre10),
+  // which also live in #vocs — neither must leak into the allowed-vocation list.
+  allowCbs().filter((cb) => cb.checked).map((cb) => cb.value);
 
 // --- populate the weight-class selector (sets level-1 stamina) ---
 // Only base stamina affects the solve; the body-weight range, stamina-recovery
@@ -517,7 +514,7 @@ function collectRequire() {
     require[tier][input.dataset.voc] = n;
     sums[tier] += n;
   }
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     if (sums[tier] > TIER_SIZE[tier])
       return { error: `${TIER_LABEL[tier]} required minimums total ${sums[tier]}, but only ` +
         `${TIER_SIZE[tier]} levels are available there. Lower them so they sum to ${TIER_SIZE[tier]} or less.` };
@@ -663,7 +660,7 @@ function applySelections(params) {
   // driven by the allow list (it's restored from `req` below).
   if (params.has('v')) {
     const want = new Set(params.get('v').split(',').filter(Boolean));
-    for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require)')) {
+    for (const cb of allowCbs()) {
       cb.checked = want.has(cb.value);
       cb.closest('.voc').classList.toggle('off', !cb.checked);
     }
@@ -708,7 +705,7 @@ function applySelections(params) {
     input.value = n != null ? n : '';
     if (n != null) {
       const row = input.closest('.voc');
-      row.querySelector('input[type="checkbox"]:not(.require)').checked = true;
+      allowCb(row).checked = true;
       row.classList.remove('off');
     }
   }
@@ -915,7 +912,7 @@ function findAllAlts() {
 
 // Canonical key for an allocation, to dedup the displayed build vs. the generator.
 function allocKey(b) {
-  return b.start + '|' + ['to10', 'to100', 'to200']
+  return b.start + '|' + TIERS
     .map((t) => Object.entries(b.counts[t] || {}).sort().map(([v, n]) => `${v}:${n}`).join(','))
     .join('|');
 }
@@ -1082,8 +1079,8 @@ $('cfg-copy').addEventListener('click', async () => {
 // all stat fields blank, biases neutral, no requirements.
 function resetSelections() {
   // Allow checkboxes back on (the option toggles + require fields also live in vocsEl
-  // but are reset separately — scope to the allow box only).
-  for (const cb of vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require)')) {
+  // but are reset separately — allowCbs() scopes to the allow box only).
+  for (const cb of allowCbs()) {
     cb.checked = true;
     cb.closest('.voc').classList.remove('off');
   }

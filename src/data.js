@@ -83,7 +83,8 @@ export const PAWN_EXCLUDED = ['mknight', 'assassin', 'marcher'];
 // ones only appear in to100/to200, so a missing tier means zero gains there.
 export const VOCS = { ...basic, ...adv };
 
-// Block sizes per tier (fixed by the game).
+// The three leveling ranges, in order, and their fixed block sizes (set by the game).
+export const TIERS = ['to10', 'to100', 'to200'];
 export const TIER_SIZE = { to10: 9, to100: 90, to200: 100 };
 
 // Weight class -> base (level-1) stamina. The vocation `init` data above bakes in
@@ -132,7 +133,7 @@ export const MAX_GAIN = (() => {
   for (const k of STATS) {
     let best = 0;
     for (const v of Object.keys(VOCS))
-      for (const tier of ['to10', 'to100', 'to200'])
+      for (const tier of TIERS)
         best = Math.max(best, growth(v, tier, k));
     m[k] = best;
   }
@@ -153,7 +154,7 @@ export const BIAS_BOOST_FALLOFF = 0.5;
 export function statsOf(start, counts, baseSt = null) {
   const s = { ...basic[start].init };
   if (baseSt != null) s.st = baseSt;
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     for (const [voc, n] of Object.entries(counts[tier] || {})) {
       if (!n) continue;
       for (const k of STATS) s[k] += growth(voc, tier, k) * n;

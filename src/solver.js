@@ -17,7 +17,7 @@
 // HiGHS is MIT-licensed.
 
 import {
-  STATS, basic, BASIC, ALL, growth, statsOf, TIER_SIZE,
+  STATS, basic, BASIC, ALL, growth, statsOf, TIERS, TIER_SIZE,
   WEIGHT_BASE_ST, MAX_GAIN, PAWN_EXCLUDED, BALANCE_WEIGHTS,
   BIAS_BOOST_BASE, BIAS_BOOST_FALLOFF,
 } from './data.js';
@@ -32,7 +32,7 @@ const tierVocs = (tier, pool) =>
 // a fresh { to10, to100, to200 } so a missing/partial input is safe.
 function normalizeRequire(require, pool) {
   const out = { to10: {}, to100: {}, to200: {} };
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     const usable = new Set(tierVocs(tier, pool));
     for (const [v, n] of Object.entries(require?.[tier] || {})) {
       if (usable.has(v)) out[tier][v] = Math.max(1, Math.min(TIER_SIZE[tier], Math.round(n)));
@@ -103,7 +103,7 @@ function biasShares(ranks) {
 // The (coef, varName) terms of stat k's level-sum expression (zero gains dropped).
 function statTerms(stat, pool) {
   const terms = [];
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     for (const v of tierVocs(tier, pool)) {
       const g = growth(v, tier, stat);
       if (g !== 0) terms.push([g, varName(tier, v)]);
@@ -112,11 +112,14 @@ function statTerms(stat, pool) {
   return terms;
 }
 
+// Render one LP-format term, e.g. fmtTerm(-2, 'to100_mage') -> "-2 to100_mage".
+const fmtTerm = (c, name) => `${c >= 0 ? '+' : '-'}${Math.abs(c)} ${name}`;
+
 // Render a list of [coef, name] terms as an LP-format linear expression, e.g.
 // "+4 to10_fighter -2 to100_mage". Coefficients are integers here.
 function expr(terms) {
   if (terms.length === 0) return '0';
-  return terms.map(([c, n]) => `${c >= 0 ? '+' : '-'}${Math.abs(c)} ${n}`).join(' ');
+  return terms.map(([c, n]) => fmtTerm(c, n)).join(' ');
 }
 
 // Build the LP-format problem string for one start vocation, or null if a bound
@@ -139,7 +142,7 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
   if (baseSt != null) base.st = baseSt;
 
   const vars = []; // all (tier,voc) decision variable names
-  for (const tier of ['to10', 'to100', 'to200'])
+  for (const tier of TIERS)
     for (const v of tierVocs(tier, pool)) vars.push(varName(tier, v));
 
   const biasTMode = objStat === 'bias_t';
@@ -150,15 +153,13 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
   if (biasTMode) {
     objTerms.push('+ 1 bias_t');
   } else if (objStat) {
-    for (const [g, n] of statTerms(objStat, pool)) {
-      objTerms.push(`${g >= 0 ? '+' : '-'}${Math.abs(g)} ${n}`);
-    }
+    for (const [g, n] of statTerms(objStat, pool)) objTerms.push(fmtTerm(g, n));
   } else {
-    for (const tier of ['to10', 'to100', 'to200']) {
+    for (const tier of TIERS) {
       for (const v of tierVocs(tier, pool)) {
         let c = 0;
         for (const k of STATS) c += effW[k] * growth(v, tier, k);
-        if (c !== 0) objTerms.push(`${c >= 0 ? '+' : '-'}${Math.abs(c)} ${varName(tier, v)}`);
+        if (c !== 0) objTerms.push(fmtTerm(c, varName(tier, v)));
       }
     }
   }
@@ -195,7 +196,7 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
   }
 
   // Block-size constraints: each tier's counts sum to its fixed size.
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     const t = tierVocs(tier, pool).map((v) => `+ ${varName(tier, v)}`).join(' ');
     cons.push(`sz_${tier}: ${t} = ${TIER_SIZE[tier]}`);
   }
@@ -210,7 +211,7 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
   // Required vocations: per tier, each listed vocation takes >= its minimum of that
   // tier's levels. (A per-tier sum of minimums > the tier size is naturally infeasible
   // via the block-size constraint; the UI validates that case for a clear message.)
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     for (const [v, n] of Object.entries(reqVocs[tier] || {})) {
       cons.push(`require_${tier}_${v}: + ${varName(tier, v)} >= ${n}`);
     }
@@ -286,7 +287,7 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
   // prototype's enumeration cuts.)
   nogoods.forEach((alloc, ci) => {
     const inds = [];
-    for (const tier of ['to10', 'to100', 'to200']) {
+    for (const tier of TIERS) {
       const U = TIER_SIZE[tier];
       for (const v of tierVocs(tier, pool)) {
         const name = varName(tier, v);
@@ -305,7 +306,7 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
 
   // Default count vars have a natural upper bound (their tier size); declaring it
   // helps the solver and keeps them non-negative integers.
-  for (const tier of ['to10', 'to100', 'to200'])
+  for (const tier of TIERS)
     for (const v of tierVocs(tier, pool))
       boundLines.push(`0 <= ${varName(tier, v)} <= ${TIER_SIZE[tier]}`);
   for (const m of extraInts) boundLines.push(`0 <= ${m}`);
@@ -327,7 +328,7 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
 // Read a HiGHS solution's column values into per-tier count maps.
 function decode(sol, pool) {
   const counts = { to10: {}, to100: {}, to200: {} };
-  for (const tier of ['to10', 'to100', 'to200']) {
+  for (const tier of TIERS) {
     for (const v of tierVocs(tier, pool)) {
       const col = sol.Columns[varName(tier, v)];
       const n = col ? Math.round(col.Primal || 0) : 0;
@@ -422,7 +423,7 @@ export function solveMaxTotal(highs, opts = {}) {
 
   // Per-start pipeline mirroring the Python prototype: maximize pin (structural-only)
   // -> bias-floor t maximization (positive tiers) -> bake integer floors -> final
-  // eff-weighted solve with bounds/match/minVoc. Returns a candidate or null.
+  // eff-weighted solve with bounds/match. Returns a candidate or null.
   const solveStart = (start) => {
     // 1. Lexicographic maximize pin: the chosen stat's global optimum over the
     //    structural build space only (no bounds/match), pinned for the later passes.
@@ -482,7 +483,7 @@ export function solveMaxTotal(highs, opts = {}) {
 // Flatten a per-tier counts map into the { 'tier_voc': n } form the no-good cuts use.
 function flatAlloc(counts) {
   const a = {};
-  for (const tier of ['to10', 'to100', 'to200'])
+  for (const tier of TIERS)
     for (const [v, n] of Object.entries(counts[tier] || {})) a[varName(tier, v)] = n;
   return a;
 }
