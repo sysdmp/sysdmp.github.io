@@ -251,11 +251,11 @@ def bias_ranks(bias_tiers):
 WEIGHTS = {'SS': 500, 'S': 520, 'M': 540, 'L': 560, 'LL': 580}
 # Body-weight range that determines each class (kg).
 WEIGHT_RANGES = {
-    'SS': 'under 50kg',
-    'S':  '50-69kg',
-    'M':  '70-89kg',
-    'L':  '90-109kg',
-    'LL': '110kg and over',
+    'SS': 'under 50',
+    'S':  '50-69',
+    'M':  '70-89',
+    'L':  '90-109',
+    'LL': '110 and over',
 }
 # Stamina recovery rate per second, with multiplier relative to M (100%).
 WEIGHT_STAREGEN = {

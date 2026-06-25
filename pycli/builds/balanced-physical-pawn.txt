@@ -47,11 +47,11 @@ found 1 build(s):
 | vitals       |  8000 | hp + st                         |
 | total        |  9769 | all stats                       |
 | ---          |   --- | ---                             |
-| weight class |     M | 70-89kg                         |
+| weight class |     M | 70-89                           |
 | base st      |   540 | base stamina                    |
 | st regen     |  42/s | 100% of M                       |
 | encumbrance  |  65kg | base maximum encumbrance        |
 +--------------+-------+---------------------------------+
  owoc planner: https://owoc.github.io/#af1502011d25000000000000000a5a00000000080100
 
-solve time: 0.056s
+solve time: 0.070s

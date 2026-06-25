@@ -100,7 +100,7 @@ export const DEFAULT_WEIGHT = 'M';
 // character in each class, stamina-recovery rate per second (with % relative to
 // M), and base maximum encumbrance (kg the character can carry).
 export const WEIGHT_RANGE = {
-  SS: 'under 50kg', S: '50–69kg', M: '70–89kg', L: '90–109kg', LL: '110kg+',
+  SS: 'under 50', S: '50–69', M: '70–89', L: '90–109', LL: '110+',
 };
 export const WEIGHT_STAREGEN = {
   SS: { rate: 53, pct: '125%' }, S: { rate: 48, pct: '115%' },

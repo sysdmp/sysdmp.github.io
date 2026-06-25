@@ -8,7 +8,7 @@ resolution-markers = [
 
 [[package]]
 name = "dragons-dogma-stat-planner"
-version = "0.4.0"
+version = "0.5.0"
 source = { virtual = "." }
 dependencies = [
     { name = "pulp", version = "3.3.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },

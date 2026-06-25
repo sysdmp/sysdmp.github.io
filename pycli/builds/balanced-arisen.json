@@ -21,7 +21,7 @@
   },
   "weight": {
     "class": "S",
-    "range": "50-69kg",
+    "range": "50-69",
     "base_stamina": 520,
     "stamina_regen_per_sec": 48,
     "stamina_regen_pct": "115%",
@@ -105,7 +105,7 @@
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.503,
+  "solve_time_sec": 0.495,
   "builds": [
     {
       "penalty": 0.0,
