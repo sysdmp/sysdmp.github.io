@@ -233,15 +233,19 @@ this rule.
 | Flag         | Meaning                                                                            |
 |--------------|------------------------------------------------------------------------------------|
 | `--solver`   | `auto` (ILP if PuLP installed, else search — default), `ilp`, or `search`.         |
-| `--count N`  | Number of **distinct** feasible builds to output (default 1).                      |
+| `--count N`  | Number of builds to output (default 1). Builds past the first are alternate leveling paths to the **same optimal stats** — not worse-stat builds; fewer than N if the optimum is unique. |
 | `--seed N`   | Base RNG seed; runs are reproducible per seed (default 0). Affects `search` only.  |
 | `--seeds N`  | `search`: number of random restarts (default 8).                                   |
 | `--iters N`  | `search`: iterations per seed (default 1,500,000).                                 |
 
-The ILP solver is exact and fast; it evaluates every allowed start vocation and picks
-the one whose build best satisfies the objective (ties fall back to `fighter` /
-`strider` / `mage` order), enumerating distinct builds via no-good cuts when
-`--count > 1`. The `search` solver is a stochastic hill-climb used only as a fallback.
+The ILP solver is exact and fast. It runs in two phases: first it evaluates every
+allowed start vocation and picks the build that best satisfies the objective (ties
+fall back to `fighter` / `strider` / `mage` order), which fixes the optimal final
+stats; then, when `--count > 1`, it enumerates additional builds that reach **those
+exact stats** via different leveling paths, using no-good cuts (so the extras are
+genuine alternatives, never lower-stat consolation builds). This mirrors the web app's
+"find alternatives" button. The `search` solver is a stochastic hill-climb used only as
+a fallback when PuLP is unavailable.
 
 Each CBC solve is capped at a few seconds: some flag combinations (e.g. `--divisor 100`
 with a continuous `--bias`) leave CBC holding the optimum but unable to *prove* it
@@ -288,7 +292,7 @@ $ ddda-build-solver.py --import build.json      # same tables, plus the original
 # Minimum HP and stamina, everything else unconstrained
 $ ddda-build-solver.py --hp-min 3600 --st-min 4000
 
-# Pin attack to an exact value, output 3 distinct builds
+# Pin attack to an exact value, show up to 3 leveling paths to the best stats
 $ ddda-build-solver.py --attack 550 --count 3
 
 # Keep physical and magick stats equal

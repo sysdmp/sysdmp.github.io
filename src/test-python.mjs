@@ -236,7 +236,58 @@ function compareEnumerate(label, opts, cap = 30) {
   if (!ok) failures++;
 }
 
-// ---------------------------------------------------------------------------
+// Cross-check Python's --count WITHOUT pre-pinning stats: post the two-phase rewrite
+// it must behave like the web's solveMaxTotal -> sameStatsBuilds — find an optimum,
+// then enumerate every distinct allocation reaching THOSE exact stats. This exercises
+// phase 1 (find optimum) + phase 2 (enumerate) end-to-end (compareEnumerate above pins
+// all six stats and so skips phase 1). We assert:
+//   1. all py builds share one stat-vector (the same-stats property — the whole point
+//      of the change; the old --count returned worse-stat builds to pad the count);
+//   2. py's optimum has the SAME balanced score as web's optimum (phase-1 optimality);
+//   3. py's enumeration is complete + correct: re-running the web enumerator seeded
+//      from PY'S OWN chosen stats yields py's exact allocation set.
+// We do NOT require web and py to pick the identical optimal stat-vector: when the
+// balanced objective is degenerate (e.g. hp<->st both weight 0.1) HiGHS and CBC may
+// each land on a different but equally-optimal vector. (2) pins down that both are
+// genuine optima; (3) pins down that phase 2 is a faithful same-stats enumeration.
+// (wScore — the balanced weighted score — is defined near the top of this file.)
+function compareCountNatural(label, opts, cap = 30) {
+  count++;
+  let seed;
+  try { seed = solveMaxTotal(highs, opts); }
+  catch { console.log(`FAIL - ${label}: web seed infeasible`); failures++; return; }
+
+  let doc;
+  try {
+    const out = execFileSync('uv', ['run', PY, ...pyArgs(opts), '--count', String(cap), '--json'],
+      { cwd: PYDIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    doc = JSON.parse(out);
+  } catch (e) { console.log(`FAIL - ${label}: python errored (${e.message})`); failures++; return; }
+  const pyBuilds = doc.builds || [];
+  if (pyBuilds.length === 0) { console.log(`FAIL - ${label}: python returned no builds`); failures++; return; }
+
+  // (1) every py build reaches the identical six stats.
+  const pyStats = pyBuilds[0].final_stats;
+  const sameStats = pyBuilds.every((b) => STATS.every((k) => b.final_stats[k] === pyStats[k]));
+  // (2) py's optimum scores the same as web's optimum (allow tiny float slack).
+  const scoreMatch = Math.abs(wScore(pyStats) - wScore(seed.stats)) <= 1e-6;
+  // (3) phase-2 completeness: web's same-stats enumeration seeded from py's chosen
+  //     stats reproduces py's exact allocation set.
+  const pySet = new Set(pyBuilds.map((b) => allocKey(b.start, b.levels)));
+  const { builds: webBuilds, capped: webCapped } = enumerateSameStats(highs, opts, pyStats, cap);
+  const webSet = new Set(webBuilds.map((b) => allocKey(b.start, b.counts)));
+  const capHit = webCapped || webBuilds.length >= cap || pyBuilds.length >= cap;
+  const setsMatch = webSet.size === pySet.size && [...webSet].every((k) => pySet.has(k));
+
+  const ok = !capHit && sameStats && scoreMatch && setsMatch;
+  let detail = `py ${pySet.size} builds @ score ${wScore(pyStats).toFixed(1)}`;
+  if (capHit) detail += ' [CAP HIT — pick a smaller target]';
+  else if (!sameStats) detail += ' [py builds have differing stats]';
+  else if (!scoreMatch) detail += ` [score py ${wScore(pyStats).toFixed(1)} vs web ${wScore(seed.stats).toFixed(1)}]`;
+  else if (!setsMatch) detail += ` [enum mismatch: web ${webSet.size} vs py ${pySet.size}]`;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} - ${label}: ${detail}`);
+  if (!ok) failures++;
+}
 // STATIC suite — fixed, representative cases.
 // ---------------------------------------------------------------------------
 console.log('# static');
@@ -290,6 +341,18 @@ compare('bias + maximize attack (bias mattack)', { maximize: 'attack', bias: { m
 // to have a small, fully-enumerable count so neither side hits the cap.
 compareEnumerate('enumerate: defense=700 (3 allocations)', { bounds: { defense: { min: 700, max: 700 } } });
 compareEnumerate('enumerate: defense=750 (2 allocations)', { bounds: { defense: { min: 750, max: 750 } } });
+
+// --count parity WITHOUT pre-pinning: Python must find its own optimum then enumerate
+// the same-stats set, matching web. These natural optima are unique allocations, so
+// the real assertion is that `--count 30` returns exactly 1 build (the optimum) and
+// does NOT pad with worse-stat builds (the old --count behavior). Covers diverse
+// objective paths (balanced / maximize / bias / weight / match).
+compareCountNatural('count: balanced default', {});
+compareCountNatural('count: maximize attack', { maximize: 'attack' });
+compareCountNatural('count: maximize mdefense + pawn', { maximize: 'mdefense', pawn: true });
+compareCountNatural('count: bias attack=mattack', { bias: { attack: 3, mattack: 3 } });
+compareCountNatural('count: weight LL', { weight: 'LL' });
+compareCountNatural('count: match attack=mattack', { match: [{ a: 'attack', b: 'mattack', tol: 0 }] });
 
 // ---------------------------------------------------------------------------
 // DYNAMIC suite — random cases each run (fuzz). Seeded for reproducibility:

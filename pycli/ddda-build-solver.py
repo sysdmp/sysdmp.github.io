@@ -454,10 +454,19 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
               require=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
-    (constraints are modeled as hard). Returns [] if infeasible. Up to `count`
-    builds are returned, ranked across the allowed start vocations by the same
-    objective the solver optimizes; within a start, distinct solutions are
-    enumerated with no-good cuts.
+    (constraints are modeled as hard). Returns [] if infeasible.
+
+    Two phases (mirrors the web solveMaxTotal -> sameStatsBuilds):
+      1. Find the single optimal build via the full objective pipeline (maximize
+         lex pre-pass -> bounds/divisor/match targets -> bias equal-share floor ->
+         balanced total), taking the best start vocation. This fixes the optimal
+         final stats.
+      2. Pin all six stats to that optimum and enumerate up to `count` DISTINCT
+         (vocation, tier) allocations reaching those exact stats -- across all
+         starts, walked with no-good cuts. So `count > 1` surfaces alternate
+         leveling paths to the SAME stats, never builds with worse stats; with the
+         default count=1 only the optimum is returned. Fewer than `count` builds
+         come back when the same-stats set is smaller than asked.
 
     `rounding` maps a stat name to an integer divisor (e.g. 100, 50, 10). The
     stat's value is forced to divisor*k via a fresh integer k, its max bound is
@@ -530,15 +539,29 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         usable = set(basic_pool if tier == 'to10' else adv_pool)
         req_tiers[tier] = {v: max(1, min(sz, int(n)))
                            for v, n in (require.get(tier) or {}).items() if v in usable}
-    candidates = []   # (quality_key, build) across all starts; sorted at the end
-    # The start vocation only shifts the constant base stats, so solve one ILP
-    # family per allowed basic start, then pick the best builds across all of them
-    # — the start is chosen by the resulting stats/objective, not by a fixed order.
-    for start in starts:
+    # penalty is reported against constraints as actually enforced: rounding stats
+    # keep only their floor, so their dropped max isn't counted. (start-independent.)
+    eval_cons = {k: ((cons[k][0], None) if k in rounding else cons[k]) for k in STATS}
+
+    # Per-stat objective weights: the base balance weights plus any --bias adjustment.
+    # Within each sign group (positive favor / negative reduce), the i-th tier gets
+    # magnitude BIAS_BOOST_BASE * FALLOFF**i, applied with the tier's sign and divided
+    # by the stat's MAX_GAIN so the adjustment rewards/penalizes "leveling invested"
+    # rather than raw points. The two groups are indexed independently. The equal-share
+    # floor (phase 1) guarantees positively-biased stats grow (weighted sum is
+    # winner-take-all). (start-independent.)
+    eff_weights = dict(weights)
+    for stat, (sign, idx) in bias_ranks(bias_tiers).items():
+        eff_weights[stat] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[stat]
+
+    # The start vocation only shifts the constant base stats, so we build one ILP
+    # family per allowed basic start. structural_model() emits the part shared by both
+    # phases below: the per-(vocation,tier) integer level vars, the block-size sums, the
+    # pawn / no-switcheroo / require constraints, and each stat's value expression.
+    def structural_model(start):
         base = dict(basic[start]['init'])
         if base_st is not None:
             base['st'] = base_st   # weight class overrides the data's default (M=540)
-
         prob = pulp.LpProblem("build", pulp.LpMinimize)
         # integer count of level-ups taken in each (vocation, tier), with upper
         # bounds = the block size (used as big-M for the no-good cuts below).
@@ -564,10 +587,8 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
             prob += x10[start] == 9
 
         # Required vocations: per tier, each listed vocation takes >= its minimum.
-        # Structural (applied here, before the maximize lex pre-pass / apply_targets),
-        # so it holds under --maximize too. A per-tier sum of minimums > the tier size
-        # is infeasible via the block-size constraint above (validated up front in main
-        # for a clear message).
+        # A per-tier sum of minimums > the tier size is infeasible via the block-size
+        # constraint above (validated up front in main for a clear message).
         for xs, tier in ((x10, 'to10'), (x100, 'to100'), (x200, 'to200')):
             for v, n in req_tiers[tier].items():
                 prob += xs[v] >= n
@@ -579,71 +600,29 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
                 + pulp.lpSum(growth(v,'to10')[k]  * x10[v]  for v in basic_pool) \
                 + pulp.lpSum(growth(v,'to100')[k] * x100[v] for v in adv_pool) \
                 + pulp.lpSum(growth(v,'to200')[k] * x200[v] for v in adv_pool)
+        return prob, x10, x100, x200, tiers, exprs
 
-        # The per-stat bounds / divisor / match targets are applied via this
-        # closure, NOT inline -- because --maximize must rank ABOVE
-        # them. They're maximized first (over the structural build space only: pool,
-        # pawn, no-switcheroo, weight) to find the stat's true global optimum, that
-        # optimum is pinned, and only THEN are the targets imposed. So a target that
-        # conflicts with the maximized peak makes the build infeasible rather than
-        # quietly lowering the maximized value. Called after the lex pre-pass below.
-        def apply_targets():
-            nonlocal prob  # `prob += ...` augmented-assigns, so bind the outer one
-            for k in STATS:
-                expr = exprs[k]
-                lo, hi = cons[k]
-                if k in rounding:
-                    # divisor mode: value == divisor*mult, min kept as floor, max dropped
-                    divisor = rounding[k]
-                    mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
-                    prob += expr == divisor * mult
-                    if lo is not None: prob += expr >= lo
-                else:
-                    if lo is not None: prob += expr >= lo
-                    if hi is not None: prob += expr <= hi
+    def read_counts(x10, x100, x200):
+        c10  = {v: int(round(x10[v].value()))  for v in basic_pool}
+        c100 = {v: int(round(x100[v].value())) for v in adv_pool}
+        c200 = {v: int(round(x200[v].value())) for v in adv_pool}
+        return c10, c100, c200
 
-            # match mode: tol 0 forces paired stats to share a value; tol>0 (the '~'
-            # operator) lets them differ by at most `tol` points (|a - b| <= tol).
-            for a_stat, b_stat, tol in match:
-                if tol == 0:
-                    prob += exprs[a_stat] == exprs[b_stat]
-                else:
-                    prob += exprs[a_stat] - exprs[b_stat] <= tol
-                    prob += exprs[b_stat] - exprs[a_stat] <= tol
-
-        # penalty is reported against constraints as actually enforced: rounding
-        # stats keep only their floor, so their dropped max isn't counted.
-        eval_cons = {k: ((cons[k][0], None) if k in rounding else cons[k]) for k in STATS}
-
-        # Per-stat objective weights: the base balance weights plus any --bias
-        # adjustment. Within each sign group (positive favor / negative reduce),
-        # the i-th tier gets magnitude BIAS_BOOST_BASE * FALLOFF**i, applied with
-        # the tier's sign and divided by the stat's MAX_GAIN so the adjustment
-        # rewards/penalizes "leveling invested" rather than raw points. The two
-        # groups are indexed independently. The equal-share floor below guarantees
-        # positively-biased stats grow at all (weighted sum is winner-take-all).
-        eff_weights = dict(weights)
-        for stat, (sign, idx) in bias_ranks(bias_tiers).items():
-            eff_weights[stat] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[stat]
-
-        # Base objective (lexicographic via weight magnitudes; all minimized):
-        #  1. maximize the (bias-weighted) total of final stats.
-        # --maximize sits ABOVE this via a lexicographic pre-pass
-        # below. The start vocation is chosen by the resulting objective across
-        # all starts (see the candidate sort at the end), not by a fixed order.
-        # No per-vocation cosmetic preferences.
-        W_STAT = 10**3   # per (weighted) stat point
-        total_stats = pulp.lpSum(eff_weights[k] * exprs[k] for k in STATS)
-        base_objective = -W_STAT * total_stats
+    # ---- Phase 1: find the single optimal build's final stats. -----------------
+    # For each allowed start, run the full objective pipeline (maximize lex pre-pass
+    # -> bounds/divisor/match targets -> bias equal-share floor -> balanced total)
+    # and take that start's optimum; the best across starts (by the same lexicographic
+    # quality the solver optimizes) gives the target stats. Mirrors web solveMaxTotal.
+    best = None   # (quality_key, stats) of the global optimum
+    for start in starts:
+        prob, x10, x100, x200, tiers, exprs = structural_model(start)
 
         # --maximize lexicographic pre-pass: maximize each listed stat in priority
         # order, freezing each at its optimum before moving on. Skipped when empty.
-        #
-        # Crucially this runs BEFORE apply_targets(): each stat is optimized over
-        # the structural build space only (block sizes, pawn, no-switcheroo,
-        # weight), so the bounds/divisor/match targets cannot lower the peak.
-        # The optima are pinned, then the targets are applied -- a target that
-        # can't be met at the peak makes the start infeasible.
+        # Runs BEFORE the targets below: each stat is optimized over the structural
+        # build space only, so bounds/divisor/match cannot lower the peak. The optima
+        # are pinned, then the targets apply -- a target that can't be met at the peak
+        # makes the start infeasible.
         infeasible_start = False
         lex_opts = []   # the pinned maximized optima, in priority order
         for stat in maximize:
@@ -658,20 +637,35 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         if infeasible_start:
             continue  # this start vocation cannot satisfy the constraints
 
-        # Now impose the per-stat bounds / divisor / match targets, ranked
-        # below the pinned maximize optima.
-        apply_targets()
+        # Impose the per-stat bounds / divisor / match targets, ranked below the
+        # pinned maximize optima.
+        for k in STATS:
+            lo, hi = cons[k]
+            if k in rounding:
+                # divisor mode: value == divisor*mult, min kept as floor, max dropped
+                mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
+                prob += exprs[k] == rounding[k] * mult
+                if lo is not None: prob += exprs[k] >= lo
+            else:
+                if lo is not None: prob += exprs[k] >= lo
+                if hi is not None: prob += exprs[k] <= hi
+        # match mode: tol 0 forces paired stats to share a value; tol>0 (the '~'
+        # operator) lets them differ by at most `tol` points (|a - b| <= tol).
+        for a_stat, b_stat, tol in match:
+            if tol == 0:
+                prob += exprs[a_stat] == exprs[b_stat]
+            else:
+                prob += exprs[a_stat] - exprs[b_stat] <= tol
+                prob += exprs[b_stat] - exprs[a_stat] <= tol
 
-        # --bias "equal-share floor then maximize": a single weighted-sum objective
-        # is winner-take-all per range (e.g. assassin dominates attack and gives 0
+        # --bias "equal-share floor then maximize": a single weighted-sum objective is
+        # winner-take-all per range (e.g. assassin dominates attack and gives 0
         # mdefense, so a lower-priority biased stat never moves). To guarantee every
-        # POSITIVELY-biased stat grows -- earlier tiers more -- first maximize a
-        # shared t under
-        #   value(stat) >= share_i * t * MAX_GAIN[stat],   share_i = FALLOFF**i
-        # for every stat in positive tier i, which pulls them up together in
-        # priority proportion (co-tier stats get the same share). Then bake the
-        # achieved gains in as floors and let the weighted total maximize within.
-        # Negative tiers only adjust the objective weight; they get no floor.
+        # POSITIVELY-biased stat grows -- earlier tiers more -- first maximize a shared
+        # t under value(stat) >= share_i * t * MAX_GAIN[stat] (share_i = FALLOFF**i) for
+        # every stat in positive tier i, pulling them up together in priority
+        # proportion (co-tier stats share). Then bake the achieved gains as floors and
+        # let the weighted total maximize within. Negative tiers only adjust the weight.
         bias_shares = [(stat, BIAS_BOOST_FALLOFF ** idx)
                        for stat, (sign, idx) in bias_ranks(bias_tiers).items() if sign > 0]
         if bias_shares:
@@ -686,49 +680,66 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
             for stat, share in bias_shares:
                 prob += exprs[stat] >= int(share * MAX_GAIN[stat] * t_opt)   # bake floor
 
-        prob.setObjective(base_objective)
+        # Balanced total-stat objective (minimized as a negative). --maximize sits
+        # above it via the pinned lex optima; the start is chosen by the resulting
+        # objective across all starts, not by a fixed order.
+        prob.setObjective(-(10**3) * pulp.lpSum(eff_weights[k] * exprs[k] for k in STATS))
+        prob.solve(cbc)
+        if not solved_ok(prob):
+            continue
+        c10, c100, c200 = read_counts(x10, x100, x200)
+        s = stats_of(start, c10, c100, c200, base_st=base_st)
+        # Quality key (smaller = better): --maximize optima first (higher value sorts
+        # first), then the bias-weighted total. The stable min keeps BASIC order on ties.
+        quality = (tuple(-opt for opt in lex_opts), -sum(eff_weights[k] * s[k] for k in STATS))
+        if best is None or quality < best[0]:
+            best = (quality, s)
 
-        # Enumerate up to `count` distinct builds for this start, best first.
+    if best is None:
+        return []   # no start vocation can satisfy the constraints
+    target = best[1]   # the optimal final stats every returned build must hit
+
+    # ---- Phase 2: enumerate distinct builds reaching the EXACT optimal stats. ----
+    # Pin all six stats to `target` and walk distinct (vocation, tier) allocations via
+    # no-good cuts, across every start in order (fighter/strider/mage), up to `count`.
+    # Pinning all six stats subsumes the objective/bounds/match/bias, so this is a pure
+    # feasibility enumeration -- the direct analogue of the web's sameStatsBuilds. With
+    # the default count=1 it returns just the optimum; a larger count surfaces alternate
+    # leveling paths to the same result, and it never invents worse-stat builds.
+    builds = []
+    for start in starts:
+        if len(builds) >= count:
+            break
+        prob, x10, x100, x200, tiers, exprs = structural_model(start)
+        for k in STATS:
+            prob += exprs[k] == target[k]
+        prob.setObjective(pulp.lpSum([]))   # feasibility only; all solutions tie on stats
         cut_id = 0
-        for _ in range(count):
+        while len(builds) < count:
             prob.solve(cbc)
             if not solved_ok(prob):
-                break  # no more distinct builds for this start
-            c10  = {v: int(round(x10[v].value()))  for v in basic_pool}
-            c100 = {v: int(round(x100[v].value())) for v in adv_pool}
-            c200 = {v: int(round(x200[v].value())) for v in adv_pool}
+                break  # no more distinct same-stats builds for this start
+            c10, c100, c200 = read_counts(x10, x100, x200)
             s = stats_of(start, c10, c100, c200, base_st=base_st)
-            build = (penalty(s, eval_cons), start, c10, c100, c200, s)
-            # Quality key mirroring the lexicographic objective (smaller = better),
-            # so the winning start is chosen by stats/objective, not BASIC order:
-            #  1. --maximize -> -value, priority order (higher value sorts first);
-            #  2. the bias-weighted stat total (maximize -> negate).
-            lex_key = tuple(-opt for opt in lex_opts)
-            wstat = sum(eff_weights[k] * s[k] for k in STATS)
-            quality = (lex_key, -wstat)
-            candidates.append((quality, build))
+            builds.append((penalty(s, eval_cons), start, c10, c100, c200, s))
 
-            # No-good cut: force the next solution to differ from this one in at
-            # least one variable. For each var x_i with value v_i, a binary g_i
-            # (=> x_i >= v_i+1) and l_i (=> x_i <= v_i-1); require sum(g+l) >= 1.
+            # No-good cut: force the next solution to differ from this one in at least
+            # one variable. For each var x_i with value v_i, a binary g_i (=> x_i >=
+            # v_i+1) and l_i (=> x_i <= v_i-1); require sum(g+l) >= 1.
             inds = []
             for xs, vocs, U in tiers:
                 vals = {v: int(round(xs[v].value())) for v in vocs}
                 for v in vocs:
                     vi, xi = vals[v], xs[v]
-                    g = pulp.LpVariable(f"g{cut_id}_{xs[v].name}", cat="Binary")
-                    l = pulp.LpVariable(f"l{cut_id}_{xs[v].name}", cat="Binary")
+                    g = pulp.LpVariable(f"g{start}_{cut_id}_{xs[v].name}", cat="Binary")
+                    l = pulp.LpVariable(f"l{start}_{cut_id}_{xs[v].name}", cat="Binary")
                     prob += xi >= (vi + 1) - (vi + 1) * (1 - g)   # g=1 => xi >= vi+1
                     prob += xi <= (vi - 1) + (U + 1) * (1 - l)    # l=1 => xi <= vi-1
                     inds += [g, l]
             prob += pulp.lpSum(inds) >= 1
             cut_id += 1
 
-    # Choose builds across all starts by quality (stats/objective), not by the
-    # order starts were tried. Ties keep their first-seen (BASIC) order via the
-    # stable sort, so fighter only wins genuine ties.
-    candidates.sort(key=lambda ck: ck[0])
-    return [build for _, build in candidates[:count]]
+    return builds
 
 class _SpacedHelpFormatter(argparse.RawTextHelpFormatter):
     """Help formatter that preserves newlines in description, epilog, and option
@@ -864,7 +875,10 @@ def parse_args():
                                "ilp    = exact PuLP solver\n"
                                "search = stochastic hill-climb")
     g_solver.add_argument('--count', type=int, default=1, metavar='N',
-                          help='number of distinct feasible builds to output (default: 1)')
+                          help='number of builds to output (default: 1). builds\n'
+                               'beyond the first are alternate leveling paths that\n'
+                               'reach the SAME optimal stats, not worse-stat builds;\n'
+                               'fewer than N come back if the optimum is unique')
     g_solver.add_argument('--seed', type=int, default=0, metavar='N',
                           help='base RNG seed; runs are reproducible per seed (default: 0)')
     g_solver.add_argument('--seeds', type=int, default=8, metavar='N',
