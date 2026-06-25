@@ -1,12 +1,13 @@
 {
   "name": "ddda-build-solver-web",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Browser MILP solver for Dragon's Dogma: Dark Arisen level-200 builds (uses HiGHS/WASM).",
   "license": "MIT",
   "type": "module",
   "main": "src/solver.js",
   "scripts": {
-    "test": "node src/test.mjs",
+    "test": "node src/test.mjs && make && node src/test-dom.mjs",
+    "test:dom": "node src/test-dom.mjs",
     "test:py": "node src/test-python.mjs",
     "build": "make"
   },
@@ -14,6 +15,7 @@
     "highs": "^1.14.2"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "jsdom": "^29.1.1"
   }
 }
