@@ -26,7 +26,6 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
   switcheroo only), then the rest of the settings apply within that maximum. A
   target that conflicts with the peak makes the build infeasible rather than
   lowering the maximized value.
-- **Minimize vocations** — prefer builds using fewer distinct vocations.
 - **Require vocations** — force specific vocations to each take at least a chosen
   number of levels in a range, set per vocation **per tier**
   (`require: { to10:{voc:n}, to100:{voc:n}, to200:{voc:n} }`; requiring also allows).
@@ -157,9 +156,8 @@ npm test        # node src/test.mjs
 
 `npm run test:py` treats the Python prototype (`pycli/ddda-build-solver.py`, run
 via `uv`) as the source of truth and asserts the web solver reaches the **same
-optimal objective** on matched inputs — the balanced weighted score, the exact
-maximized stat for `--maximize`, or the distinct-vocation count for
-minimize-vocations. (Allocations may differ when builds tie at the optimum; only
+optimal objective** on matched inputs — the balanced weighted score, or the exact
+maximized stat for `--maximize`. (Allocations may differ when builds tie at the optimum; only
 the objective value is compared. The web solver runs HiGHS with a zero MIP gap so
 both prove exact optima.) It has a **static** suite (fixed cases) and a
 **dynamic** fuzz suite (random inputs each run):

@@ -448,7 +448,7 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
     return best
 
 def solve_ilp(cons, count=1, rounding=None, match=(),
-              minimize_vocations=False, base_st=None, allowed=None,
+              base_st=None, allowed=None,
               maximize=(), bias_tiers=(), weights=None, start_pool=None,
               verbose=False, time_limit=5, pawn=False, no_early_switch=False,
               require=None):
@@ -466,10 +466,6 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
     `match` is an iterable of (stat_a, stat_b, tol) triples constraining the two
     final values: tol 0 forces them equal, tol>0 lets them differ by at most
     `tol` points (|stat_a - stat_b| <= tol). Each stat's own min/max still apply.
-
-    `minimize_vocations`: when True, the dominant objective term minimizes the
-    number of distinct vocations that receive any level-ups, so feasible builds
-    that require fewer vocation changes are preferred.
 
     `allowed`: optional iterable restricting which vocations may be used in any
     range (defaults to all); the 1->10 range uses the basics within it.
@@ -554,7 +550,7 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         x100 = {v: pulp.LpVariable(f"x100_{v}", lowBound=0, upBound=90,  cat="Integer") for v in adv_pool}
         x200 = {v: pulp.LpVariable(f"x200_{v}", lowBound=0, upBound=100, cat="Integer") for v in adv_pool}
         # (var dict, vocations, block size) per range; reused for block-size
-        # constraints, the minimize-vocations binding, and no-good cuts.
+        # constraints and no-good cuts.
         tiers = [(x10, basic_pool, 9), (x100, adv_pool, 90), (x200, adv_pool, 100)]
 
         # block sizes: 1->10 = 9 levels, 10->100 = 90, 100->200 = 100
@@ -635,27 +631,14 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
             eff_weights[stat] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[stat]
 
         # Base objective (lexicographic via weight magnitudes; all minimized):
-        #  1. --minimize-vocations (when set): fewest distinct vocations. Dominant.
-        #  2. maximize the (bias-weighted) total of final stats.
+        #  1. maximize the (bias-weighted) total of final stats.
         # --maximize sits ABOVE this via a lexicographic pre-pass
         # below. The start vocation is chosen by the resulting objective across
         # all starts (see the candidate sort at the end), not by a fixed order.
         # No per-vocation cosmetic preferences.
-        W_VOC  = 10**9   # per used vocation; dominant
         W_STAT = 10**3   # per (weighted) stat point
         total_stats = pulp.lpSum(eff_weights[k] * exprs[k] for k in STATS)
         base_objective = -W_STAT * total_stats
-
-        if minimize_vocations:
-            # A vocation is "used" if it receives any level in any tier. Bind a
-            # binary used[v] so used[v]=1 whenever that vocation has levels, then
-            # minimize the count of used vocations as the dominant term.
-            used = {v: pulp.LpVariable(f"used_{v}_{start}", cat="Binary") for v in adv_pool}
-            for xs, vocs, U in tiers:
-                for v in vocs:
-                    # if x[v] > 0 then used[v] must be 1 (x[v] <= U * used[v])
-                    prob += xs[v] <= U * used[v]
-            base_objective = W_VOC * pulp.lpSum(used.values()) + base_objective
 
         # --maximize lexicographic pre-pass: maximize each listed stat in priority
         # order, freezing each at its optimum before moving on. Skipped when empty.
@@ -722,14 +705,11 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
             build = (penalty(s, eval_cons), start, c10, c100, c200, s)
             # Quality key mirroring the lexicographic objective (smaller = better),
             # so the winning start is chosen by stats/objective, not BASIC order:
-            #  1. distinct vocation count, only when --minimize-vocations is set;
-            #  2. --maximize -> -value, priority order (higher value sorts first);
-            #  3. the bias-weighted stat total (maximize -> negate).
-            n_vocs = len({v for cc in (c10, c100, c200) for v, n in cc.items() if n > 0})
-            voc_key = (n_vocs,) if minimize_vocations else ()
+            #  1. --maximize -> -value, priority order (higher value sorts first);
+            #  2. the bias-weighted stat total (maximize -> negate).
             lex_key = tuple(-opt for opt in lex_opts)
             wstat = sum(eff_weights[k] * s[k] for k in STATS)
-            quality = (voc_key, lex_key, -wstat)
+            quality = (lex_key, -wstat)
             candidates.append((quality, build))
 
             # No-good cut: force the next solution to differ from this one in at
@@ -775,14 +755,14 @@ def parse_args():
                     "  Find a build whose final stats meet your targets. Each stat takes an\n"
                     "  optional min and/or max (omit one to leave it unbounded), or an exact\n"
                     "  value. The ILP solver adds extra goals: divisor rounding,\n"
-                    "  match, bias, maximize, and minimize-vocations.",
+                    "  match, bias, and maximize.",
         epilog=c("\nexamples:\n", 'bold', 'yellow') +
                "  # minimum HP and stamina, everything else unconstrained\n"
                "  ddda-build-solver.py --hp-min 3600 --st-min 4000\n\n"
                "  # pin attack to an exact value, output 3 distinct builds\n"
                "  ddda-build-solver.py --attack 550 --count 3\n\n"
-               "  # keep physical and magick stats equal, fewest vocation changes\n"
-               "  ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocations\n\n"
+               "  # keep physical and magick stats equal\n"
+               "  ddda-build-solver.py --match attack=mattack,defense=mdefense\n\n"
                "  # round HP to a multiple of 1000, machine-readable output\n"
                "  ddda-build-solver.py --weight LL --divisor hp=1000 --json\n")
 
@@ -827,9 +807,6 @@ def parse_args():
                               "e.g. 'attack=mattack,defense~mdefense'. 'all' expands\n"
                               "to attack=mattack,defense=mdefense,hp=st.\n"
                               "(each stat's own min/max still applies)")
-    g_goals.add_argument('--minimize-vocations', action='store_true',
-                         help="prefer feasible builds that use fewer distinct\n"
-                              "vocations (fewer vocation changes)")
     g_goals.add_argument('--require', type=str, default='', metavar='SPEC',
                          help="force a vocation to take at least N levels in a range,\n"
                               "as comma-separated segments: 'voc=N' (the 10->100\n"
@@ -1683,7 +1660,7 @@ def main():
             print(c("\nsolver: ", 'dim') + c("ILP (exact)", 'green'))
         _t0 = time.perf_counter()
         builds = solve_ilp(cons, count=count, rounding=rounding, match=match,
-                           minimize_vocations=a.minimize_vocations, base_st=base_st,
+                           base_st=base_st,
                            allowed=allowed, maximize=maximize,
                            bias_tiers=bias_tiers,
                            weights={k: 1.0 for k in STATS} if a.equal_weights else None,
@@ -1713,7 +1690,7 @@ def main():
     else:
         if not a.json:
             ilp_only = [('--divisor', a.divisor), ('--match', a.match),
-                        ('--minimize-vocations', a.minimize_vocations), ('--require', a.require),
+                        ('--require', a.require),
                         ('--bias', a.bias), ('--maximize', a.maximize)]
             for flag, val in ilp_only:
                 if val:

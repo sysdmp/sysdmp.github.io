@@ -218,12 +218,13 @@ for (const v of ALL) {
   (isBasic ? leftCol : rightCol).appendChild(row);
 }
 
-// Tuck the option checkboxes and the weight-class selector into the left column,
+// Tuck the option checkboxes and the class selectors into the left column,
 // below the basic vocations (so they sit to the left of the hybrid vocations in
 // the right column). They're authored in the template after #vocs; move the DOM
-// nodes, keeping their ids/listeners intact.
+// nodes, keeping their ids/listeners intact. Starting class sits above weight class.
+leftCol.appendChild($('start-class').closest('.wsel'));
 leftCol.appendChild($('weight').closest('.wsel'));
-for (const id of ['pawn', 'min-voc', 'no-pre10']) leftCol.appendChild($(id).closest('.pawn'));
+for (const id of ['pawn', 'no-pre10']) leftCol.appendChild($(id).closest('.pawn'));
 // (the weight-class info display lives in the results panel, updated on solve)
 
 // Boolean option checkboxes, declared once: { DOM id, solver opt key, URL param }.
@@ -231,7 +232,6 @@ for (const id of ['pawn', 'min-voc', 'no-pre10']) leftCol.appendChild($(id).clos
 // table instead of naming each checkbox three times over.
 const TOGGLES = [
   { el: $('pawn'), opt: 'pawn', param: 'p' },
-  { el: $('min-voc'), opt: 'minimizeVocations', param: 'mv' },
   { el: $('no-pre10'), opt: 'noPre10Switch', param: 'nx' },
 ];
 const pawnEl = $('pawn'); // pawn also drives the hybrid-vocation greying below
@@ -310,7 +310,7 @@ pawnEl.addEventListener('change', updatePawnUI);
 updatePawnUI();
 
 const selectedVocs = () =>
-  // Scope to .voc and exclude .require: the option toggles (pawn/min-voc/no-pre10)
+  // Scope to .voc and exclude .require: the option toggles (pawn/no-pre10)
   // also live in #vocs (value "on"), and each row now also has a require field —
   // neither must leak into the allowed-vocation list.
   [...vocsEl.querySelectorAll('.voc input[type="checkbox"]:not(.require):checked')].map((cb) => cb.value);
@@ -605,7 +605,6 @@ function collectBounds() {
 //   w   = weight class (omitted when M)
 //   sc  = forced starting class (a basic vocation; omitted when Auto)
 //   p   = 1 when pawn mode is on
-//   mv  = 1 when minimize-vocations is on
 //   nx  = 1 when "no pre-10 vocation switch" is on
 //   <stat>_min   = min bound
 //   <stat>_max   = max bound

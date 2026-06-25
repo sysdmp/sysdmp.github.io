@@ -178,7 +178,6 @@ its min as a floor; an exact `--<stat>` value overrides it.
 | `--match PAIRS`         | Comma-separated stat pairs tied together. `a=b` forces **equal** final values; `a~b` lets them differ by at most **10** points for combat pairs, or **100** for the `hp~st` pair (e.g. `attack~mattack` might give 490 / 500). Mix freely: `attack=mattack,defense~mdefense`. The keyword `all` expands to the three exact pairings `attack=mattack,defense=mdefense,hp=st`. Each stat's own min/max still applies. |
 | `--bias STATS`          | Comma-separated **priority tiers** of stats to softly favor — the first tier favored most, each later tier less. Positively-biased stats are guaranteed to grow (an equal-share floor proportional to their tier), then the weighted total maximizes within that. Group stats into one tier (equal weight) with `=`: e.g. `attack=mattack,mdefense` favors attack and mattack equally (tier 1) and mdefense too but less (tier 2). Prefix a tier with `-` to **reduce** a stat's weight instead — pass it via the `=` form so argparse keeps the dash (`--bias=-mattack`) or after a comma (`attack,-mattack`); positive and negative tiers are independent and their order doesn't matter. A soft preference; use `--maximize` for a hard guarantee. |
 | `--maximize STATS`      | Comma-separated stats to **hard-maximize**, highest priority first (lexicographic): `attack,defense` maxes attack, then maxes defense without giving up attack. The **top** priority — each stat is driven to its **global** optimum over the build structure (pool/pawn/weight/no-switcheroo) *first*, with your `--STAT`/`--STAT-min`/`--STAT-max`/`--divisor`/`--match` targets applied only **within** that optimum. A target that conflicts with the peak is **infeasible**, not silently relaxed: `--maximize attack --hp-min 3220` behaves like `--attack <max> --hp-min 3220`. Sits above the total-stat objective. |
-| `--minimize-vocations`  | Among feasible builds, prefer ones that use **fewer distinct vocations** (fewer vocation changes). Dominates the maximize/total objective. |
 | `--require SPEC`        | Force a vocation to take at least N levels in a range, as comma-separated segments: `voc=N` (the **10→100** range) or `voc:RANGE=N` where RANGE is `10` / `100` / `200`. E.g. `--require warrior=40,fighter:10=9,sorcerer:200=30`. Ranges hold 9 / 90 / 100 levels; each range's minimums must fit, and **1→10 is basic-vocations only**. A **hard, structural** constraint (holds under `--maximize` too); a required vocation is implicitly allowed (rejected if `--avoid`ed/pawn-excluded). |
 | `--equal-weights`       | Value **hp/st equally** with the other stats in the balanced objective (by default they're discounted — see below). |
 
@@ -296,8 +295,8 @@ $ ddda-build-solver.py --hp-min 3600 --st-min 4000
 # Pin attack to an exact value, output 3 distinct builds
 $ ddda-build-solver.py --attack 550 --count 3
 
-# Keep physical and magick stats equal, fewest vocation changes
-$ ddda-build-solver.py --match attack=mattack,defense=mdefense --minimize-vocations
+# Keep physical and magick stats equal
+$ ddda-build-solver.py --match attack=mattack,defense=mdefense
 
 # Keep attack and mattack within 10 points of each other (approximate match)
 $ ddda-build-solver.py --match attack~mattack
@@ -342,14 +341,11 @@ $ ddda-build-solver.py --import build.json
 - **Final level is always 200.** The three ranges (9 + 90 + 100 levels) are fixed.
 - **Infeasible constraints are reported as such.** The ILP solver proves when no build
   can satisfy your targets, rather than silently returning a near-miss.
-- **"vocation switches" and `--minimize-vocations` measure different things.** The
-  *vocation switches* line counts **leveling blocks** — the distinct vocations in each
-  of the three ranges, summed, minus one. A vocation that appears in two ranges counts
-  as two blocks (you switch away and back), so the number is an upper bound on real
-  switches and won't collapse a vocation that happens to continue across a range
-  boundary. `--minimize-vocations`, by contrast, minimizes the count of **distinct
-  vocations used at all** (a reused vocation counts once) — so it can lower the
-  distinct-vocation count without lowering the switches line by the same amount.
+- **The "vocation switches" line counts leveling blocks.** It's the distinct vocations
+  in each of the three ranges, summed, minus one. A vocation that appears in two ranges
+  counts as two blocks (you switch away and back), so the number is an upper bound on
+  real switches and won't collapse a vocation that happens to continue across a range
+  boundary.
 - **`--match` exact (`=`) links are transitive** in the constraints display: `a=b,b=c`
   ties all three, and the shown min/max for each becomes the tightest (intersected) bound
   of the group. Approximate (`~`) links do not merge bounds, since the stats need not

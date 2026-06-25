@@ -63,7 +63,6 @@ function pyArgs(opts) {
     args.push('--match', opts.match.map(({ a, b, tol }) => `${a}${tol === 0 ? '=' : '~'}${b}`).join(','));
   }
   if (opts.maximize) args.push('--maximize', opts.maximize);
-  if (opts.minimizeVocations) args.push('--minimize-vocations');
   if (opts.noPre10Switch) args.push('--no-early-switcheroo');
   if (opts.pawn) args.push('--pawn');
   if (opts.weight) args.push('--weight', opts.weight);
@@ -136,7 +135,6 @@ function compare(label, opts) {
   // 2. The objective optimum must match. The comparable invariant depends on the
   //    dominant objective term:
   //      --maximize STAT          -> the exact maximized stat value
-  //      --minimize-vocations     -> the distinct-vocation count (its dominant term)
   //      otherwise                -> the balanced weighted score
   //    Both solvers prove exact optima (web runs HiGHS at zero MIP gap), so the
   //    dominant objective value matches. Allocations may still differ on ties.
@@ -146,10 +144,6 @@ function compare(label, opts) {
     const k = opts.maximize;
     ok = py.stats[k] === web.stats[k];
     detail = `max ${k}: py ${py.stats[k]} vs web ${web.stats[k]}`;
-  } else if (opts.minimizeVocations) {
-    const pv = py.vocs, wv = web.vocs;
-    ok = pv === wv;
-    detail = `distinct vocations: py ${pv} vs web ${wv}`;
   } else if (opts.bias && Object.keys(opts.bias).length) {
     // Bias: compare the eff_weights-weighted optimum (both sides optimize it after
     // the same equal-share floor pre-pass). Allocations/favored values may tie.
@@ -268,9 +262,6 @@ compare('infeasible attack>=99999', { bounds: { attack: { min: 99999 } } });
 compare('combo: hp>=3500, def>=300, attack divisor 50', {
   bounds: { hp: { min: 3500 }, defense: { min: 300 }, attack: { divisor: 50 } },
 });
-compare('minimize-vocations', { minimizeVocations: true });
-compare('minimize-vocations + attack>=500', { minimizeVocations: true, bounds: { attack: { min: 500 } } });
-compare('minimize-vocations + pawn', { minimizeVocations: true, pawn: true });
 compare('no-early-switcheroo', { noPre10Switch: true });
 compare('no-early-switcheroo + mattack>=400', { noPre10Switch: true, bounds: { mattack: { min: 400 } } });
 compare('no-early-switcheroo + maximize mattack', { noPre10Switch: true, maximize: 'mattack' });
@@ -349,14 +340,11 @@ for (let i = 0; i < N; i++) {
   }
   if (rnd() < 0.3) opts.weight = pick(['SS', 'S', 'M', 'L', 'LL']);
   if (rnd() < 0.25) opts.pawn = true;
-  // minimize-vocations is its own dominant objective; only mix it in when not
-  // maximizing (the two would compete) and compare on vocation count.
-  if (!opts.maximize && rnd() < 0.25) opts.minimizeVocations = true;
   // no-early-switcheroo composes with everything (it just pins the 1->10 range).
   if (rnd() < 0.25) opts.noPre10Switch = true;
-  // Occasionally attach a random bias map — only when neither maximize nor minVoc is
-  // set, so the bias-weighted score is the comparison invariant (those take priority).
-  if (!opts.maximize && !opts.minimizeVocations && rnd() < 0.3) {
+  // Occasionally attach a random bias map — only when not maximizing, so the
+  // bias-weighted score is the comparison invariant (maximize takes priority).
+  if (!opts.maximize && rnd() < 0.3) {
     opts.bias = {};
     const n = 1 + Math.floor(rnd() * 2);
     for (let j = 0; j < n; j++) {

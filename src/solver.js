@@ -128,15 +128,11 @@ function expr(terms) {
 // below still apply.
 // `pin`: optional { stat, value } — forces value(stat) >= value, used as the
 // second pass of a lexicographic maximize to lock in the achieved optimum.
-// `minVoc`: when true, add a dominant objective term minimizing the number of
-// distinct vocations used (fewer vocation changes), then the balanced total —
-// mirrors the prototype's --minimize-vocations. Only meaningful for the balanced
-// objective (objStat == null).
 // `effW`: the per-stat objective weights (balance + bias adjustment) for the
 // balanced objective. `shares`: [{stat, share}] for the bias-floor pass (objStat
 // === 'bias_t'). `floors`: { stat: minValue } baked-in bias floors (final solve).
 function buildLP({ start, pool, bounds, baseSt, pawn, match,
-                   objStat = null, pin = null, minVoc = false, noPre10Switch = false,
+                   objStat = null, pin = null, noPre10Switch = false,
                    reqVocs = {}, effW = BALANCE_WEIGHTS, shares = [], floors = null,
                    nogoods = [] }) {
   const base = { ...basic[start].init };
@@ -147,19 +143,9 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
     for (const v of tierVocs(tier, pool)) vars.push(varName(tier, v));
 
   const biasTMode = objStat === 'bias_t';
-  // A vocation is "used" if it gets any level in any tier. With minVoc we add a
-  // binary used_<voc> per vocation and minimize their count as the dominant term.
-  // Only meaningful for the balanced final objective (objStat == null).
-  const useMinVoc = minVoc && objStat == null;
-  // distinct vocations that have at least one decision variable in the pool
-  const usedVocs = [...new Set(['to10', 'to100', 'to200'].flatMap((t) => tierVocs(t, pool)))];
-  const usedVar = (v) => `used_${v}`;
-  // dominant penalty per used vocation: larger than any achievable balanced score
-  const W_VOC = 1e6;
 
   // Objective: a single stat's level terms (lexicographic maximize pass), the bias
-  // floor variable bias_t (maximize-t pass), or the balanced eff-weighted total
-  // (optionally minus the used-vocation penalty for minVoc).
+  // floor variable bias_t (maximize-t pass), or the balanced eff-weighted total.
   const objTerms = [];
   if (biasTMode) {
     objTerms.push('+ 1 bias_t');
@@ -175,13 +161,12 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
         if (c !== 0) objTerms.push(`${c >= 0 ? '+' : '-'}${Math.abs(c)} ${varName(tier, v)}`);
       }
     }
-    if (useMinVoc) for (const v of usedVocs) objTerms.push(`- ${W_VOC} ${usedVar(v)}`);
   }
 
   const cons = []; // constraint lines
   const extraInts = []; // divisor multiplier integer vars
   const boundLines = []; // explicit variable bound lines
-  const binaries = []; // 0/1 vars (used-vocation indicators)
+  const binaries = []; // 0/1 vars (no-good cut g/l indicators)
 
   // Bias-floor pass: maximize a continuous bias_t s.t. value(stat) >= share*MAX_GAIN*t
   // for each positively-biased stat, i.e. Σterms_k - share*MAX_GAIN[k]*bias_t >= -base[k].
@@ -213,18 +198,6 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
   for (const tier of ['to10', 'to100', 'to200']) {
     const t = tierVocs(tier, pool).map((v) => `+ ${varName(tier, v)}`).join(' ');
     cons.push(`sz_${tier}: ${t} = ${TIER_SIZE[tier]}`);
-  }
-
-  // minVoc: link each tier variable to its vocation's used_<voc> binary
-  // (x <= tier_size * used  =>  x - tier_size used <= 0), so used=1 whenever the
-  // vocation gets any level.
-  if (useMinVoc) {
-    for (const v of usedVocs) binaries.push(usedVar(v));
-    for (const tier of ['to10', 'to100', 'to200']) {
-      for (const v of tierVocs(tier, pool)) {
-        cons.push(`use_${tier}_${v}: + ${varName(tier, v)} - ${TIER_SIZE[tier]} ${usedVar(v)} <= 0`);
-      }
-    }
   }
 
   // Pawn: >=1 of the 1->10 levels in the starting vocation.
@@ -395,10 +368,6 @@ function decode(sol, pool) {
  *                                    the balanced objective apply among builds that still hit
  *                                    it. A bound that conflicts with the peak makes the build
  *                                    infeasible (rather than settling for a lower maximum).
- * @param {boolean} [opts.minimizeVocations] prefer builds using fewer distinct
- *                                    vocations (fewer vocation changes) as the dominant
- *                                    objective term, then the balanced total. May yield
- *                                    a lower stat total.
  * @param {boolean} [opts.noPre10Switch] forbid changing vocation before level 10:
  *                                    all nine 1→10 levels stay in the start vocation.
  * @param {object} [opts.require] per-tier, per-vocation minimum level counts:
@@ -421,7 +390,6 @@ export function solveMaxTotal(highs, opts = {}) {
   const bias = opts.bias ?? {};
   const match = opts.match ?? [];
   const maximize = opts.maximize ?? null;
-  const minVoc = !!opts.minimizeVocations;
   const noPre10Switch = !!opts.noPre10Switch;
   const baseSt = opts.weight != null ? WEIGHT_BASE_ST[opts.weight] : null;
   // Required vocations, per tier: each listed vocation must take >= its minimum of that
@@ -435,10 +403,6 @@ export function solveMaxTotal(highs, opts = {}) {
   // it match the prototype's exact solve.
   const SOLVE_OPTS = { mip_rel_gap: 0, mip_abs_gap: 0 };
 
-  // Distinct vocations a build actually uses (any level in any tier).
-  const vocCount = (counts) =>
-    new Set(['to10', 'to100', 'to200'].flatMap((t) => Object.keys(counts[t] || {}))).size;
-
   // Bias: derive the tier structure from the per-stat {stat:int} map, then the
   // effective objective weights and the positive-tier shares for the floor pass.
   const ranks = biasRanks(biasTiersFromMap(bias));
@@ -446,7 +410,7 @@ export function solveMaxTotal(highs, opts = {}) {
   const shares = biasShares(ranks);
 
   // The per-start model config; objStat/pin/floors vary per pipeline stage.
-  const modelBase = { pool, bounds, baseSt, pawn: opts.pawn, match, minVoc, noPre10Switch,
+  const modelBase = { pool, bounds, baseSt, pawn: opts.pawn, match, noPre10Switch,
                       reqVocs, effW };
 
   const solveLP = (extra) => {
@@ -485,7 +449,7 @@ export function solveMaxTotal(highs, opts = {}) {
       }
     }
 
-    // 3. Final solve: balanced eff-weighted objective (+ minVoc), pin, bounds/match,
+    // 3. Final solve: balanced eff-weighted objective, pin, bounds/match,
     //    baked floors.
     const sol = solveLP({ start, objStat: null, pin, floors });
     if (!sol) return null;
@@ -497,23 +461,20 @@ export function solveMaxTotal(highs, opts = {}) {
   const candidates = starts.map(solveStart).filter(Boolean);
   if (candidates.length === 0) throw new Error('no build satisfies these constraints');
 
-  // Rank across starts by a composite key (mirrors Python's (voc_key, lex_key,
-  // -wstat)): minVoc count dominant when set, then the maximized stat's value
-  // (higher better — selects the global-max start), then the eff-weighted total.
+  // Rank across starts by a composite key (mirrors Python's (lex_key, -wstat)):
+  // the maximized stat's value (higher better — selects the global-max start),
+  // then the eff-weighted total.
   let best = null;
   for (const c of candidates) {
     const total = STATS.reduce((a, k) => a + c.stats[k], 0);
     const score = STATS.reduce((a, k) => a + effW[k] * c.stats[k], 0);
-    const nVoc = minVoc ? vocCount(c.counts) : 0;
     let better;
     if (!best) better = true;
-    else if (minVoc && nVoc !== best.nVoc) better = nVoc < best.nVoc;
     else if (maximize && c.lexOpt !== best.lexOpt) better = c.lexOpt > best.lexOpt;
     else better = score > best.score;
-    if (better) best = { ...c, total, score, nVoc };
+    if (better) best = { ...c, total, score };
   }
   delete best.score;
-  delete best.nVoc;
   delete best.lexOpt;
   return best;
 }

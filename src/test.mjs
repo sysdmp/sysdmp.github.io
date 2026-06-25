@@ -188,26 +188,7 @@ check('secondary objective honored under maximize',
       honored.stats.mattack >= noBias.stats.mattack,
       `mattack ${noBias.stats.mattack} -> ${honored.stats.mattack}`);
 
-// 12. Minimize vocations — uses no more distinct vocations than the default, and
-//     no more than the game minimum (start basic + one advanced = 2).
-const distinct = (b) =>
-  new Set(['to10', 'to100', 'to200'].flatMap((t) => Object.keys(b.counts[t]))).size;
-const plain = solveMaxTotal(highs, {});
-const minv = solveMaxTotal(highs, { minimizeVocations: true });
-check('minimize-vocations uses <= default vocation count',
-      distinct(minv) <= distinct(plain), `${distinct(plain)} -> ${distinct(minv)}`);
-check('minimize-vocations build is valid (tier sizes)',
-      Object.values(minv.counts.to10).reduce((a, n) => a + n, 0) === 9 &&
-      Object.values(minv.counts.to100).reduce((a, n) => a + n, 0) === 90 &&
-      Object.values(minv.counts.to200).reduce((a, n) => a + n, 0) === 100);
-// It's a soft trade-off dominated by vocation count, so its balanced score is
-// <= the unconstrained balanced optimum (raw total may differ, since the balanced
-// objective discounts hp/st).
-const wsc = (b) => STATS.reduce((a, k) => a + BALANCE_WEIGHTS[k] * b.stats[k], 0);
-check('minimize-vocations balanced score <= unconstrained',
-      wsc(minv) <= wsc(plain) + 1e-6, `${wsc(plain).toFixed(1)} -> ${wsc(minv).toFixed(1)}`);
-
-// 13. Required vocations — per tier { to10, to100, to200 }: each voc takes >= its min.
+// 12. Required vocations — per tier { to10, to100, to200 }: each voc takes >= its min.
 const rq = solveMaxTotal(highs, { require: { to100: { warrior: 40 } } });
 check('require: warrior gets >=40 of to100', (rq.counts.to100.warrior ?? 0) >= 40,
       `to100 warrior ${rq.counts.to100.warrior ?? 0}`);
