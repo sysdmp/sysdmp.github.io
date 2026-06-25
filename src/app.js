@@ -113,6 +113,14 @@ const tierHeader = (withTo10) => {
 leftCol.appendChild(tierHeader(true));   // basics: all three ranges
 rightCol.appendChild(tierHeader(false)); // advanced/hybrid: no 1→10
 
+// Per-tier sizes/labels for the require fields (1→10 / 10→100 / 100→200). Declared
+// before updateRequireUI/clampReqField/encode use them (those run during init).
+const TIER_SIZE = { to10: 9, to100: 90, to200: 100 };
+const TIER_LABEL = { to10: '1→10', to100: '10→100', to200: '100→200' };
+// Short tier codes used in the share URL's `req` param ("voc@10:n", etc.).
+const TIER_SHORT = { to10: '10', to100: '100', to200: '200' };
+const TIER_FROM_SHORT = { 10: 'to10', 100: 'to100', 200: 'to200' };
+
 // Mark rows that currently carry a requirement (a non-empty, enabled require field)
 // so they can be styled. Called from the allow/require row handlers, updatePawnUI,
 // and refreshAllCues (URL restore / reset).
@@ -122,6 +130,49 @@ function updateRequireUI() {
       .some((inp) => inp.value !== '' && !inp.disabled);
     row.classList.toggle('required', on);
   }
+  // Per tier: when the enabled fields sum to exactly the tier size (no levels left to
+  // allocate), highlight all of that tier's fields green via `.tier-full`.
+  const tierFull = {};
+  for (const tier of ['to10', 'to100', 'to200']) {
+    const fields = [...vocsEl.querySelectorAll(`.voc input.require[data-tier="${tier}"]`)];
+    const sum = fields.reduce((a, inp) =>
+      a + (inp.disabled || inp.value === '' ? 0 : Math.floor(Number(inp.value)) || 0), 0);
+    tierFull[tier] = sum === TIER_SIZE[tier];
+    for (const inp of fields) inp.classList.toggle('tier-full', tierFull[tier] && inp.value !== '');
+  }
+  // A fully-allocated 1→10 range pins the whole pre-10 distribution, so the
+  // "disable switcheroo" toggle is meaningless — grey it out and uncheck it (so it
+  // can't impose a conflicting no-pre10 constraint on the solver). It re-enables and
+  // restores its prior checked state when 1→10 is no longer full.
+  const noPre10 = $('no-pre10');
+  if (tierFull.to10) {
+    if (!noPre10.disabled) noPre10.dataset.prevChecked = noPre10.checked ? '1' : '0';
+    noPre10.checked = false;
+    noPre10.disabled = true;
+  } else if (noPre10.disabled) {
+    noPre10.disabled = false;
+    noPre10.checked = noPre10.dataset.prevChecked === '1';
+  }
+}
+
+// Live-clamp a require field as the user types: an integer ≥ 1, capped at its tier
+// size, and capped so the tier's total across all vocations never exceeds that size
+// (1→10 ≤ 9, 10→100 ≤ 90, 100→200 ≤ 100). A value with no headroom left is cleared.
+function clampReqField(input) {
+  if (input.value === '') return;
+  const tier = input.dataset.tier;
+  const size = TIER_SIZE[tier];
+  let n = Math.floor(Number(input.value));
+  if (!Number.isFinite(n) || n < 1) { input.value = ''; return; } // 0 / negative / junk -> clear
+  // Sum the OTHER enabled require fields in this tier; this field may use the rest.
+  let others = 0;
+  for (const o of vocsEl.querySelectorAll(`.voc input.require[data-tier="${tier}"]`)) {
+    if (o === input || o.disabled || o.value === '') continue;
+    others += Math.floor(Number(o.value)) || 0;
+  }
+  const headroom = Math.max(0, size - others);
+  if (headroom < 1) { input.value = ''; return; } // tier already full elsewhere
+  input.value = String(Math.min(n, headroom));
 }
 
 // Per-tier "minimum levels" fields per row. Each row carries up to three number
@@ -159,6 +210,7 @@ for (const v of ALL) {
   });
   for (const inp of reqInputs) {
     inp.addEventListener('input', () => {
+      clampReqField(inp); // keep it an integer within the tier size + remaining headroom
       if (inp.value !== '') { allow.checked = true; row.classList.remove('off'); } // require implies allow
       updateRequireUI();
     });
@@ -213,6 +265,19 @@ function updateStartClass() {
       .find((c) => c.value === v);
     if (cb) { cb.checked = true; cb.closest('.voc').classList.remove('off'); }
   }
+  // Pawn + a forced start: a pawn must take ≥1 of its 1→10 levels in the start
+  // vocation, so pre-populate that vocation's 1→10 require field with at least 1.
+  // The auto-set "1" is tagged data-pawn-auto so it can be cleared when the condition
+  // lifts (pawn off / start changed) without clobbering a value the user typed.
+  const target = (v && pawnEl.checked) ? v : null;
+  for (const f of vocsEl.querySelectorAll('.voc input.require[data-tier="to10"]')) {
+    if (f.dataset.voc === target) {
+      if (f.value === '') { f.value = '1'; f.dataset.pawnAuto = '1'; }
+    } else if (f.dataset.pawnAuto) {
+      if (f.value === '1') f.value = ''; // remove only our untouched auto-fill
+      delete f.dataset.pawnAuto;
+    }
+  }
   const note = $('start-pawn-note');
   if (v && pawnEl.checked) {
     note.hidden = false;
@@ -220,6 +285,7 @@ function updateStartClass() {
   } else {
     note.hidden = true;
   }
+  updateRequireUI(); // the auto-filled 1→10 value may change the tier-full/green state
 }
 startClassEl.addEventListener('change', updateStartClass);
 
@@ -236,8 +302,9 @@ function updatePawnUI() {
     }
     row.classList.toggle('off', on || !allow.checked);
   }
-  updateRequireUI();
-  updateStartClass(); // pawn toggle changes the combined-effect note
+  // updateStartClass() applies the pawn+start 1→10 auto-fill and itself calls
+  // updateRequireUI(), so the require cues refresh after that runs.
+  updateStartClass(); // pawn toggle changes the combined-effect note + auto-fill
 }
 pawnEl.addEventListener('change', updatePawnUI);
 updatePawnUI();
@@ -432,13 +499,6 @@ const matchSelect = (k) =>
 function collectMaximize() {
   return maximizeEl.value || null;
 }
-
-// Per-tier sizes/labels for the require fields (1→10 / 10→100 / 100→200).
-const TIER_SIZE = { to10: 9, to100: 90, to200: 100 };
-const TIER_LABEL = { to10: '1→10', to100: '10→100', to200: '100→200' };
-// Short tier codes used in the share URL's `req` param ("voc@10:n", etc.).
-const TIER_SHORT = { to10: '10', to100: '100', to200: '200' };
-const TIER_FROM_SHORT = { 10: 'to10', 100: 'to100', 200: 'to200' };
 
 // Collect per-tier, per-vocation required minimums as { to10, to100, to200 } maps.
 // Returns { require, error }: error is set when a value is out of range or a tier's

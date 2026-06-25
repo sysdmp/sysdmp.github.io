@@ -96,6 +96,8 @@
     border: 1px solid var(--line); border-radius: 5px; padding: .2rem .25rem; font: inherit;
     font-size: .72rem; font-variant-numeric: tabular-nums; text-align: center; }
   .voc input.require:focus { outline: none; border-color: var(--gold); }
+  /* a tier whose required minimums sum to its full size (no levels left to assign) */
+  .voc input.require.tier-full { border-color: var(--green); color: var(--green); }
   .voc input:disabled { cursor: not-allowed; opacity: .5; }
   .voc.off { opacity: .42; }
   .voc.required { border-color: var(--gold); }
@@ -105,9 +107,14 @@
     letter-spacing: .08em; }
   .voc-head .tiers { display: grid; grid-template-columns: repeat(3, 2.4rem); gap: .25rem; }
   .voc-head .tiers span { font-size: .6rem; color: var(--dim); text-align: center; white-space: nowrap; }
-  .pawn { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+  /* inline-flex (not flex) so the label only spans its content — clicks past the
+     text don't fall on the label and toggle the checkbox. align-self:flex-start
+     keeps each toggle on its own line without stretching full width. */
+  .pawn { display: inline-flex; align-items: center; gap: .5rem; font-size: .9rem; align-self: flex-start; }
   .pawn .info { margin-left: -.15rem; } /* flex gap already spaces it from the label */
   .pawn input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
+  .pawn input:disabled { cursor: not-allowed; }
+  .pawn:has(input:disabled) { opacity: .42; } /* grey the toggle when it's disabled (e.g. moot) */
   /* extra space above the first toggle, separating it from the basic vocations */
   .voc-col .pawn:first-of-type { margin-top: .5rem; }
   /* stat range chooser */
