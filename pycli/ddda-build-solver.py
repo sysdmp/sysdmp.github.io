@@ -523,14 +523,21 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         # timed out: usable iff it produced variable values
         return any(v.value() is not None for v in prob.variables())
     rounding = dict(rounding or {})
-    # Required vocations { voc: min levels in to100 }; keep only those in the pool
-    # (a require not in the pool would bound a nonexistent var). Each min clamped 1..90.
-    require = {v: max(1, min(90, int(n))) for v, n in (require or {}).items() if v in (allowed if allowed is not None else ALL)}
     weights = weights if weights is not None else BALANCE_WEIGHTS
     adv_pool = list(allowed) if allowed is not None else ALL
     starts = list(start_pool) if start_pool is not None else BASIC
     # basic vocations usable in the 1->10 range: those in the (avoid-filtered) pool
     basic_pool = [v for v in BASIC if v in adv_pool]
+    # Required vocations, per tier { 'to10'|'to100'|'to200': {voc: min levels} }; keep
+    # only vocations usable in that tier (1->10 is basics only; a require not in the
+    # pool would bound a nonexistent var). Each min clamped to 1..tier-size.
+    TIER_SZ = {'to10': 9, 'to100': 90, 'to200': 100}
+    require = require or {}
+    req_tiers = {}
+    for tier, sz in TIER_SZ.items():
+        usable = set(basic_pool if tier == 'to10' else adv_pool)
+        req_tiers[tier] = {v: max(1, min(sz, int(n)))
+                           for v, n in (require.get(tier) or {}).items() if v in usable}
     candidates = []   # (quality_key, build) across all starts; sorted at the end
     # The start vocation only shifts the constant base stats, so solve one ILP
     # family per allowed basic start, then pick the best builds across all of them
@@ -564,12 +571,14 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         if no_early_switch:
             prob += x10[start] == 9
 
-        # Required vocations: each takes >= its minimum of the 90 level-10->100 levels.
+        # Required vocations: per tier, each listed vocation takes >= its minimum.
         # Structural (applied here, before the maximize lex pre-pass / apply_targets),
-        # so it holds under --maximize too. A sum of minimums > 90 is infeasible via
-        # the block-size constraint above (validated up front in main for a clear msg).
-        for v, n in require.items():
-            prob += x100[v] >= n
+        # so it holds under --maximize too. A per-tier sum of minimums > the tier size
+        # is infeasible via the block-size constraint above (validated up front in main
+        # for a clear message).
+        for xs, tier in ((x10, 'to10'), (x100, 'to100'), (x200, 'to200')):
+            for v, n in req_tiers[tier].items():
+                prob += xs[v] >= n
 
         # each stat's final value as a linear expression
         exprs = {}
@@ -822,12 +831,13 @@ def parse_args():
                          help="prefer feasible builds that use fewer distinct\n"
                               "vocations (fewer vocation changes)")
     g_goals.add_argument('--require', type=str, default='', metavar='SPEC',
-                         help="force vocations to take at least N of the 90 level-\n"
-                              "10->100 levels each, as comma-separated 'voc=N'\n"
-                              "segments: --require warrior=40,sorcerer=10\n"
-                              "(each N 1..90; the minimums must total <=90). a\n"
-                              "required vocation is also allowed. vocations:\n"
-                              + ', '.join(ALL))
+                         help="force a vocation to take at least N levels in a range,\n"
+                              "as comma-separated segments: 'voc=N' (the 10->100\n"
+                              "range) or 'voc:RANGE=N' where RANGE is 10 / 100 / 200.\n"
+                              "e.g. --require warrior=40,fighter:10=9,sorcerer:200=30\n"
+                              "(ranges hold 9 / 90 / 100 levels; per-range minimums\n"
+                              "must fit; 1->10 is basics only). a required vocation is\n"
+                              "also allowed. vocations: " + ', '.join(ALL))
     g_goals.add_argument('--bias', type=str, default='', metavar='STATS',
                          help="comma-separated priority tiers of stats to softly\n"
                               "favor in the objective; the first tier gets the\n"
@@ -1574,18 +1584,27 @@ def main():
             return
         start_pool = [a.start_as]
 
-    # --require: per-vocation minimum levels in the 10->100 range, as 'voc=N' segments.
-    # Each voc must be in the allowed pool (a require implies allow, so we reject one
-    # that's been avoided/pawn-excluded rather than silently dropping it); each N is
-    # 1..90 and the minimums must total <=90 (the 10->100 range is 90 levels).
-    require = {}   # {voc: int min levels in to100}
+    # --require: per-tier, per-vocation minimum levels, as comma-separated segments
+    # 'voc=N' (10->100 by default) or 'voc:TIER=N' where TIER is 10 / 100 / 200.
+    # Each voc must be allowed (a require implies allow, so we reject an avoided/
+    # pawn-excluded one); 1->10 (TIER 10) is basics only; each N is 1..tier-size and a
+    # tier's minimums must total <= that tier's size.
+    REQ_TIER_SZ = {'to10': 9, 'to100': 90, 'to200': 100}
+    SHORT_TO_TIER = {'10': 'to10', '100': 'to100', '200': 'to200'}
+    require = {'to10': {}, 'to100': {}, 'to200': {}}   # per-tier {voc: min levels}
     req_raw = a.require.strip()
     if req_raw:
         for seg in (p.strip() for p in req_raw.split(',') if p.strip()):
             if seg.count('=') != 1:
-                fail(f"bad --require segment '{seg}'; expected 'voc=N'")
+                fail(f"bad --require segment '{seg}'; expected 'voc=N' or 'voc:TIER=N'")
                 return
-            vname, nstr = (x.strip() for x in seg.split('='))
+            lhs, nstr = (x.strip() for x in seg.split('='))
+            vname, _, short = lhs.partition(':')
+            short = short or '100'   # bare 'voc=N' means the 10->100 tier
+            tier = SHORT_TO_TIER.get(short)
+            if tier is None:
+                fail(f"--require {lhs}: bad range '{short}'; use 10, 100, or 200")
+                return
             if vname not in ALL:
                 fail(f"unknown vocation in --require: '{vname}'; choices: {','.join(ALL)}")
                 return
@@ -1593,14 +1612,22 @@ def main():
                 fail(f"--require {vname}: that vocation is excluded "
                      "(by --avoid/--pawn); can't require an excluded vocation")
                 return
-            if not nstr.isdigit() or not (1 <= int(nstr) <= 90):
-                fail(f"--require {vname} must be a whole number from 1 to 90, got '{nstr}'")
+            if tier == 'to10' and vname not in BASIC:
+                fail(f"--require {vname}:10 — only basic vocations (fighter/strider/mage) "
+                     "can be leveled in the 1->10 range")
                 return
-            require[vname] = int(nstr)
-        if sum(require.values()) > 90:
-            fail(f"--require minimums total {sum(require.values())}, but only 90 "
-                 "levels are available (10->100); lower them to sum to 90 or less")
-            return
+            sz = REQ_TIER_SZ[tier]
+            if not nstr.isdigit() or not (1 <= int(nstr) <= sz):
+                fail(f"--require {lhs} must be a whole number from 1 to {sz}, got '{nstr}'")
+                return
+            require[tier][vname] = int(nstr)
+        for tier, sz in REQ_TIER_SZ.items():
+            tot = sum(require[tier].values())
+            if tot > sz:
+                short = {'to10': '1->10', 'to100': '10->100', 'to200': '100->200'}[tier]
+                fail(f"--require minimums for {short} total {tot}, but only {sz} levels "
+                     f"are available there; lower them to sum to {sz} or less")
+                return
 
     # Shared JSON context: the exact command line plus every solve input, so a
     # saved --json document is self-describing and can be re-rendered (and the

@@ -86,17 +86,25 @@
     user-select: none; transition: border-color .12s, opacity .12s;
   }
   .voc:hover { border-color: var(--gold); }
-  /* row layout: name (left, fills the row) | require field + ⓘ (right) */
+  /* row layout: name (left, fills the row) | three per-tier require fields (right) */
   .voc-allow { display: flex; align-items: center; gap: .5rem; flex: 1; cursor: pointer; min-width: 0; }
   .voc-allow input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
-  .voc-require { display: flex; align-items: center; gap: .25rem; font-size: .68rem; color: var(--dim); }
-  .voc input.require { width: 2.6rem; height: auto; background: var(--panel); color: var(--text);
-    border: 1px solid var(--line); border-radius: 5px; padding: .2rem .3rem; font: inherit;
+  /* three fixed-width columns so the 1→10 / 10→100 / 100→200 fields align across rows */
+  .voc-require { display: grid; grid-template-columns: repeat(3, 2.4rem); gap: .25rem; flex: none; }
+  .voc input.require, .req-blank { width: 2.4rem; box-sizing: border-box; }
+  .voc input.require { height: auto; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 5px; padding: .2rem .25rem; font: inherit;
     font-size: .72rem; font-variant-numeric: tabular-nums; text-align: center; }
   .voc input.require:focus { outline: none; border-color: var(--gold); }
   .voc input:disabled { cursor: not-allowed; opacity: .5; }
   .voc.off { opacity: .42; }
   .voc.required { border-color: var(--gold); }
+  /* tier column headers above the vocation list, aligned over the field columns */
+  .voc-head { display: flex; align-items: flex-end; gap: .5rem; margin: 0 .6rem .35rem; }
+  .voc-head .spacer { flex: 1; font-size: .7rem; color: var(--gold); text-transform: uppercase;
+    letter-spacing: .08em; }
+  .voc-head .tiers { display: grid; grid-template-columns: repeat(3, 2.4rem); gap: .25rem; }
+  .voc-head .tiers span { font-size: .6rem; color: var(--dim); text-align: center; white-space: nowrap; }
   .pawn { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
   .pawn .info { margin-left: -.15rem; } /* flex gap already spaces it from the label */
   .pawn input { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
@@ -290,7 +298,7 @@
   </header>
 
   <div class="panel">
-    <h2>Vocation choice and minimum requirements<i class="info" title="Check a vocation to allow it anywhere in the build. Enter a number in a vocation's box to require it to take at least that many of the 90 level-10→100 levels (that also allows it). The required minimums across all vocations must total ≤ 90. See the ⓘ next to a box for details.">ⓘ</i></h2>
+    <h2>Vocation choice and minimum requirements<i class="info" title="Check a vocation to allow it anywhere in the build. The three boxes per vocation require it to take at least that many levels in the 1→10, 10→100, and 100→200 ranges (setting any box also allows the vocation). 1→10 is basic-vocations only. Per range, the required minimums across vocations must fit that range (9 / 90 / 100 levels).">ⓘ</i></h2>
     <div class="vocs" id="vocs"></div>
     <label class="pawn">
       <input type="checkbox" id="pawn"><span>Build for a <b>pawn</b></span><i class="info" title="Excludes hybrid vocations and forces an extra level in the starting class due to unavoidable quest experience.">ⓘ</i></label>

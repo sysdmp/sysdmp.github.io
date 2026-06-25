@@ -67,8 +67,15 @@ function pyArgs(opts) {
   if (opts.noPre10Switch) args.push('--no-early-switcheroo');
   if (opts.pawn) args.push('--pawn');
   if (opts.weight) args.push('--weight', opts.weight);
-  if (opts.require && Object.keys(opts.require).length) {
-    args.push('--require', Object.entries(opts.require).map(([v, n]) => `${v}=${n}`).join(','));
+  if (opts.require) {
+    const SHORT = { to10: '10', to100: '100', to200: '200' };
+    const segs = [];
+    for (const tier of ['to10', 'to100', 'to200']) {
+      for (const [v, n] of Object.entries(opts.require[tier] || {})) {
+        segs.push(`${v}:${SHORT[tier]}=${n}`); // explicit range suffix for every tier
+      }
+    }
+    if (segs.length) args.push('--require', segs.join(','));
   }
   if (opts.startPool?.length === 1) args.push('--start-as', opts.startPool[0]);
   // Bias: render the web {stat:int} map as Python's --bias tier string via the shared
@@ -164,11 +171,15 @@ function compare(label, opts) {
   // 3b. require / start are structural: both solvers must honor them. Re-solve the
   //     web side for its counts (runWeb returns only stats) to assert the to100
   //     minimums and the forced start.
-  if ((opts.require && Object.keys(opts.require).length) || opts.startPool?.length === 1) {
+  const hasRequire = opts.require &&
+    ['to10', 'to100', 'to200'].some((t) => Object.keys(opts.require[t] || {}).length);
+  if (hasRequire || opts.startPool?.length === 1) {
     try {
       const wb = solveMaxTotal(highs, opts);
-      for (const [v, n] of Object.entries(opts.require ?? {})) {
-        if ((wb.counts.to100[v] ?? 0) < n) { ok = false; detail += ` [web ${v} to100<${n}]`; }
+      for (const tier of ['to10', 'to100', 'to200']) {
+        for (const [v, n] of Object.entries(opts.require?.[tier] || {})) {
+          if ((wb.counts[tier][v] ?? 0) < n) { ok = false; detail += ` [web ${v} ${tier}<${n}]`; }
+        }
       }
       if (opts.startPool?.length === 1 && wb.start !== opts.startPool[0]) {
         ok = false; detail += ` [web start ${wb.start}≠${opts.startPool[0]}]`;
@@ -264,14 +275,17 @@ compare('no-early-switcheroo', { noPre10Switch: true });
 compare('no-early-switcheroo + mattack>=400', { noPre10Switch: true, bounds: { mattack: { min: 400 } } });
 compare('no-early-switcheroo + maximize mattack', { noPre10Switch: true, maximize: 'mattack' });
 compare('no-early-switcheroo + weight LL', { noPre10Switch: true, weight: 'LL' });
-compare('require warrior=40', { require: { warrior: 40 } });
-compare('require warrior=40,sorcerer=10', { require: { warrior: 40, sorcerer: 10 } });
-compare('require infeasible (sum>90)', { require: { warrior: 60, sorcerer: 50 } });
-compare('require + maximize mattack', { maximize: 'mattack', require: { warrior: 30 } });
+compare('require to100 warrior=40', { require: { to100: { warrior: 40 } } });
+compare('require to100 warrior=40,sorcerer=10', { require: { to100: { warrior: 40, sorcerer: 10 } } });
+compare('require to100 infeasible (sum>90)', { require: { to100: { warrior: 60, sorcerer: 50 } } });
+compare('require to10 fighter=9 (basics-only tier)', { require: { to10: { fighter: 9 } } });
+compare('require to200 warrior=60', { require: { to200: { warrior: 60 } } });
+compare('require mixed tiers', { require: { to10: { mage: 5 }, to100: { warrior: 50 }, to200: { sorcerer: 40 } } });
+compare('require + maximize mattack', { maximize: 'mattack', require: { to100: { warrior: 30 } } });
 compare('start-as mage', { startPool: ['mage'] });
 compare('start-as strider + attack>=500', { startPool: ['strider'], bounds: { attack: { min: 500 } } });
 compare('start-as fighter + pawn', { startPool: ['fighter'], pawn: true });
-compare('start-as mage + require warrior=40', { startPool: ['mage'], require: { warrior: 40 } });
+compare('start-as mage + require warrior=40', { startPool: ['mage'], require: { to100: { warrior: 40 } } });
 compare('bias attack +3', { bias: { attack: 3 } });
 compare('bias attack=mattack tied +4', { bias: { attack: 4, mattack: 4 } });
 compare('bias tiered attack>mattack', { bias: { attack: 5, mattack: 2 } });

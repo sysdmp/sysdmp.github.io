@@ -73,14 +73,18 @@
     "marcher"
   ],
   "start_as": null,
-  "require": {},
+  "require": {
+    "to10": {},
+    "to100": {},
+    "to200": {}
+  },
   "bias": [],
   "bias_tiers": [],
   "maximize": [],
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.05,
+  "solve_time_sec": 0.052,
   "builds": [
     {
       "penalty": 0.0,

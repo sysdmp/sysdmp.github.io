@@ -28,8 +28,9 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
   lowering the maximized value.
 - **Minimize vocations** — prefer builds using fewer distinct vocations.
 - **Require vocations** — force specific vocations to each take at least a chosen
-  number of the 90 level-10→100 levels, set per vocation (`require: { voc: minLevels }`;
-  requiring also allows). The minimums summing past 90 is infeasible.
+  number of levels in a range, set per vocation **per tier**
+  (`require: { to10:{voc:n}, to100:{voc:n}, to200:{voc:n} }`; requiring also allows).
+  1→10 is basics-only; a tier's minimums summing past its size (9/90/100) is infeasible.
 - **Pawn mode** — excludes the hybrid (Arisen-only) vocations and forces ≥1 of
   the 1→10 levels into the starting vocation.
 - **No early switcheroo** — keep all nine 1→10 levels in the start vocation.

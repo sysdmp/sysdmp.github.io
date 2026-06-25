@@ -207,34 +207,54 @@ const wsc = (b) => STATS.reduce((a, k) => a + BALANCE_WEIGHTS[k] * b.stats[k], 0
 check('minimize-vocations balanced score <= unconstrained',
       wsc(minv) <= wsc(plain) + 1e-6, `${wsc(plain).toFixed(1)} -> ${wsc(minv).toFixed(1)}`);
 
-// 13. Required vocations — { voc: minLevels }: each takes >= its min of the 90 to100.
-const rq = solveMaxTotal(highs, { require: { warrior: 40 } });
+// 13. Required vocations — per tier { to10, to100, to200 }: each voc takes >= its min.
+const rq = solveMaxTotal(highs, { require: { to100: { warrior: 40 } } });
 check('require: warrior gets >=40 of to100', (rq.counts.to100.warrior ?? 0) >= 40,
       `to100 warrior ${rq.counts.to100.warrior ?? 0}`);
-const rq90 = solveMaxTotal(highs, { require: { sorcerer: 90 } });
+const rq90 = solveMaxTotal(highs, { require: { to100: { sorcerer: 90 } } });
 check('require 90 fills to100 with the required voc',
       (rq90.counts.to100.sorcerer ?? 0) === 90, `to100 sorcerer ${rq90.counts.to100.sorcerer ?? 0}`);
-// Per-vocation minimums: different amounts for each required vocation.
-const rq2 = solveMaxTotal(highs, { require: { warrior: 40, sorcerer: 10 } });
+// Per-vocation minimums in 10->100.
+const rq2 = solveMaxTotal(highs, { require: { to100: { warrior: 40, sorcerer: 10 } } });
 check('require per-voc: warrior >=40 and sorcerer >=10',
       (rq2.counts.to100.warrior ?? 0) >= 40 && (rq2.counts.to100.sorcerer ?? 0) >= 10,
       `warrior ${rq2.counts.to100.warrior ?? 0}, sorcerer ${rq2.counts.to100.sorcerer ?? 0}`);
+// 1->10 tier (basics only) and 100->200 tier.
+const rq10 = solveMaxTotal(highs, { require: { to10: { mage: 5 } } });
+check('require: mage gets >=5 of the 9 to10 levels', (rq10.counts.to10.mage ?? 0) >= 5,
+      `to10 mage ${rq10.counts.to10.mage ?? 0}`);
+const rq200 = solveMaxTotal(highs, { require: { to200: { warrior: 60 } } });
+check('require: warrior gets >=60 of the 100 to200 levels', (rq200.counts.to200.warrior ?? 0) >= 60,
+      `to200 warrior ${rq200.counts.to200.warrior ?? 0}`);
+// Mixed across tiers in one solve.
+const rqMix = solveMaxTotal(highs, { require: { to10: { fighter: 9 }, to100: { warrior: 50 }, to200: { sorcerer: 40 } } });
+check('require mixed tiers all honored',
+      (rqMix.counts.to10.fighter ?? 0) >= 9 && (rqMix.counts.to100.warrior ?? 0) >= 50 &&
+      (rqMix.counts.to200.sorcerer ?? 0) >= 40);
+// Per-tier infeasible sums (each tier validated against its own size).
 let reqThrew = false;
-try { solveMaxTotal(highs, { require: { warrior: 60, sorcerer: 50 } }); }
+try { solveMaxTotal(highs, { require: { to100: { warrior: 60, sorcerer: 50 } } }); }
 catch { reqThrew = true; }
-check('require sum 60+50 > 90 is infeasible', reqThrew);
+check('require to100 sum 60+50 > 90 is infeasible', reqThrew);
+let req10Threw = false;
+try { solveMaxTotal(highs, { require: { to10: { fighter: 6, strider: 6 } } }); }
+catch { req10Threw = true; }
+check('require to10 sum 6+6 > 9 is infeasible', req10Threw);
 // Require is structural, so it survives the maximize pre-pass.
-const rqMax = solveMaxTotal(highs, { maximize: 'mattack', require: { warrior: 30 } });
+const rqMax = solveMaxTotal(highs, { maximize: 'mattack', require: { to100: { warrior: 30 } } });
 check('require holds under maximize', (rqMax.counts.to100.warrior ?? 0) >= 30,
       `to100 warrior ${rqMax.counts.to100.warrior ?? 0}`);
-// Robustness: a require whose voc isn't in the allowed pool is silently dropped.
+// Robustness: a require whose voc isn't usable in the tier is silently dropped.
 const rqDrop = solveMaxTotal(highs, {
-  allowed: ALL.filter((v) => v !== 'warrior'), require: { warrior: 90 },
+  allowed: ALL.filter((v) => v !== 'warrior'), require: { to100: { warrior: 90 } },
 });
 check('require for an excluded voc is ignored', rqDrop != null &&
       !Object.keys(rqDrop.counts.to100).includes('warrior'));
-const rqPawn = solveMaxTotal(highs, { pawn: true, require: { assassin: 90 } });
+const rqPawn = solveMaxTotal(highs, { pawn: true, require: { to100: { assassin: 90 } } });
 check('require for a pawn-excluded hybrid is ignored', (rqPawn.counts.to100.assassin ?? 0) === 0);
+// A non-basic required in 1->10 is dropped (advanced vocations can't level pre-10).
+const rq10adv = solveMaxTotal(highs, { require: { to10: { warrior: 5 } } });
+check('require for a non-basic in to10 is ignored', (rq10adv.counts.to10.warrior ?? 0) === 0);
 
 // 14. Forced starting class — startPool pins the start to one basic vocation.
 for (const s of BASIC) {
@@ -242,7 +262,7 @@ for (const s of BASIC) {
   check(`forced start ${s}: build.start === ${s}`, r.start === s, `got ${r.start}`);
 }
 // A forced start still honors other settings (a require on another vocation).
-const rqStart = solveMaxTotal(highs, { startPool: ['mage'], require: { warrior: 30 } });
+const rqStart = solveMaxTotal(highs, { startPool: ['mage'], require: { to100: { warrior: 30 } } });
 check('forced start honors a require', rqStart.start === 'mage' && (rqStart.counts.to100.warrior ?? 0) >= 30,
       `start ${rqStart.start}, to100 warrior ${rqStart.counts.to100.warrior ?? 0}`);
 // Forced start + pawn: the start keeps >=1 of the 1->10 levels.

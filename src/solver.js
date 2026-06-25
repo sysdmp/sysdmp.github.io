@@ -26,6 +26,21 @@ import {
 const tierVocs = (tier, pool) =>
   tier === 'to10' ? pool.filter((v) => BASIC.includes(v)) : pool;
 
+// Normalize a per-tier require map { to10:{voc:n}, to100:{...}, to200:{...} } against
+// the allowed pool: drop entries whose vocation can't be leveled in that tier (not in
+// the pool, or not a basic for to10), and clamp each minimum to 1..tier-size. Returns
+// a fresh { to10, to100, to200 } so a missing/partial input is safe.
+function normalizeRequire(require, pool) {
+  const out = { to10: {}, to100: {}, to200: {} };
+  for (const tier of ['to10', 'to100', 'to200']) {
+    const usable = new Set(tierVocs(tier, pool));
+    for (const [v, n] of Object.entries(require?.[tier] || {})) {
+      if (usable.has(v)) out[tier][v] = Math.max(1, Math.min(TIER_SIZE[tier], Math.round(n)));
+    }
+  }
+  return out;
+}
+
 // Decision-variable name for a (tier, vocation) level count. LP-format names must
 // avoid '+ - * /' and spaces; tier/vocation keys are already safe identifiers.
 const varName = (tier, voc) => `${tier}_${voc}`;
@@ -219,11 +234,13 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
   // (you can't change vocation before level 10 without the Hard Mode trick).
   if (noPre10Switch) cons.push(`nopre10: + ${varName('to10', start)} = ${TIER_SIZE.to10}`);
 
-  // Required vocations: each takes >= its minimum of the 90 level-10->100 levels.
-  // (A sum of minimums > 90 is naturally infeasible via the sz_to100 block-size
-  // constraint; the UI validates that case for a clear message.)
-  for (const [v, n] of Object.entries(reqVocs)) {
-    cons.push(`require_${v}: + ${varName('to100', v)} >= ${n}`);
+  // Required vocations: per tier, each listed vocation takes >= its minimum of that
+  // tier's levels. (A per-tier sum of minimums > the tier size is naturally infeasible
+  // via the block-size constraint; the UI validates that case for a clear message.)
+  for (const tier of ['to10', 'to100', 'to200']) {
+    for (const [v, n] of Object.entries(reqVocs[tier] || {})) {
+      cons.push(`require_${tier}_${v}: + ${varName(tier, v)} >= ${n}`);
+    }
   }
 
   // Lexicographic-maximize pin: value(stat) >= achieved optimum.
@@ -384,14 +401,15 @@ function decode(sol, pool) {
  *                                    a lower stat total.
  * @param {boolean} [opts.noPre10Switch] forbid changing vocation before level 10:
  *                                    all nine 1→10 levels stay in the start vocation.
- * @param {Object<string,number>} [opts.require] per-vocation minimum level count in the
- *                                    10→100 range: { voc: minLevels }. Each listed
- *                                    vocation must take ≥ its value of that tier's 90
- *                                    levels (each clamped to 1..90). Entries whose voc
- *                                    isn't in the allowed pool (excluded, or a pawn-dropped
- *                                    hybrid) are ignored. A hard constraint (structural:
- *                                    applies in the maximize pre-pass too). The sum of the
- *                                    minimums exceeding 90 is infeasible.
+ * @param {object} [opts.require] per-tier, per-vocation minimum level counts:
+ *                                    { to10: {voc:n}, to100: {voc:n}, to200: {voc:n} }.
+ *                                    Each listed vocation must take ≥ n of that tier's
+ *                                    levels (tier sizes 9 / 90 / 100; clamped). Entries
+ *                                    whose voc can't be leveled in the tier (not allowed,
+ *                                    pawn-dropped hybrid, or a non-basic in 1→10) are
+ *                                    dropped. A hard constraint (structural: applies in
+ *                                    the maximize pre-pass too). A per-tier sum exceeding
+ *                                    the tier size is infeasible.
  * @returns {{start, counts, stats, total}} the best feasible build.
  * @throws if no allowed build satisfies the constraints.
  */
@@ -406,14 +424,10 @@ export function solveMaxTotal(highs, opts = {}) {
   const minVoc = !!opts.minimizeVocations;
   const noPre10Switch = !!opts.noPre10Switch;
   const baseSt = opts.weight != null ? WEIGHT_BASE_ST[opts.weight] : null;
-  // Required vocations: { voc: minLevels } — each must take >= minLevels of the 90
-  // level-10->100 (to100) levels. Normalize after `pool` is set so we drop any entry
-  // whose voc isn't actually allowed (excluded, or a hybrid removed by pawn mode) —
-  // that keeps it robust without a variable for it to bound. Each min is clamped 1..90.
-  const reqVocs = {};
-  for (const [v, n] of Object.entries(opts.require ?? {})) {
-    if (pool.includes(v)) reqVocs[v] = Math.max(1, Math.min(90, Math.round(n)));
-  }
+  // Required vocations, per tier: each listed vocation must take >= its minimum of that
+  // tier's levels. Normalized against the pool (drops vocations not usable in a tier —
+  // excluded, pawn-dropped hybrids, or non-basics in 1->10 — and clamps to tier size).
+  const reqVocs = normalizeRequire(opts.require, pool);
 
   // Force HiGHS to prove true optimality. Its default MIP gap (~0.01% relative)
   // lets it stop early on a near-optimal incumbent — which here can mean leaving
@@ -531,10 +545,7 @@ export function enumerateSameStats(highs, opts = {}, stats, cap = 50) {
   if (opts.pawn) pool = pool.filter((v) => !PAWN_EXCLUDED.includes(v));
   const starts = (opts.startPool ?? BASIC).filter((v) => pool.includes(v));
   const baseSt = opts.weight != null ? WEIGHT_BASE_ST[opts.weight] : null;
-  const reqVocs = {};
-  for (const [v, n] of Object.entries(opts.require ?? {})) {
-    if (pool.includes(v)) reqVocs[v] = Math.max(1, Math.min(90, Math.round(n)));
-  }
+  const reqVocs = normalizeRequire(opts.require, pool);
   // Pin all six stats to equality; this subsumes the user's bounds/match/bias/maximize.
   const bounds = {};
   for (const k of STATS) bounds[k] = { min: stats[k], max: stats[k] };

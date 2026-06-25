@@ -99,46 +99,70 @@ const rightCol = document.createElement('div');
 leftCol.className = rightCol.className = 'voc-col';
 vocsEl.append(leftCol, rightCol);
 
+// Tier column headers atop each column, aligned over the three per-tier require
+// fields (which sit at the right edge of every row). The right column holds only
+// advanced/hybrid vocations, which can't level in 1→10, so its first column is blank
+// (no "1→10" label) — matching the empty .req-blank cell in those rows.
+const tierHeader = (withTo10) => {
+  const h = document.createElement('div');
+  h.className = 'voc-head';
+  h.innerHTML = '<span class="spacer">require ≥ levels:</span>' +
+    `<span class="tiers"><span>${withTo10 ? '1→10' : ''}</span><span>10→100</span><span>100→200</span></span>`;
+  return h;
+};
+leftCol.appendChild(tierHeader(true));   // basics: all three ranges
+rightCol.appendChild(tierHeader(false)); // advanced/hybrid: no 1→10
+
 // Mark rows that currently carry a requirement (a non-empty, enabled require field)
 // so they can be styled. Called from the allow/require row handlers, updatePawnUI,
 // and refreshAllCues (URL restore / reset).
 function updateRequireUI() {
-  for (const input of vocsEl.querySelectorAll('.voc input.require')) {
-    const on = input.value !== '' && !input.disabled;
-    input.closest('.voc').classList.toggle('required', on);
+  for (const row of vocsEl.querySelectorAll('.voc')) {
+    const on = [...row.querySelectorAll('input.require')]
+      .some((inp) => inp.value !== '' && !inp.disabled);
+    row.classList.toggle('required', on);
   }
 }
 
+// Per-tier "minimum levels" fields per row. Each row carries up to three number
+// inputs (class `require`, with data-voc + data-tier): 1→10 (basics only), 10→100,
+// and 100→200. Blank = no requirement; setting one implies allowing the vocation.
+// Vocation color (via colorVoc) conveys basic/advanced/hybrid; hybrids are tagged
+// data-hybrid for pawn-mode greying.
+const REQ_TIERS = [
+  ['to10', '1→10', 9],
+  ['to100', '10→100', 90],
+  ['to200', '100→200', 100],
+];
+const reqField = (v, tier, size) =>
+  `<input type="number" class="require" data-voc="${v}" data-tier="${tier}" ` +
+  `min="1" max="${size}" step="1" placeholder="–" aria-label="${v} minimum levels in ${tier}">`;
+
 for (const v of ALL) {
   const isBasic = BASIC.includes(v);
-  // A row is a <div> holding the allow checkbox (in its own <label> so clicking the
-  // name toggles allow) plus a per-vocation "minimum levels in 10→100" number field
-  // (blank = no requirement). The vocation id lives in data-voc since the field's
-  // value is the level count. Vocation color (via colorVoc) conveys basic/advanced/
-  // hybrid; hybrids are also tagged data-hybrid for pawn-mode greying.
   const row = document.createElement('div');
   row.className = 'voc';
   if (HYBRID.has(v)) row.dataset.hybrid = '1';
+  // 1→10 is basics-only: advanced/hybrid rows get an empty placeholder cell so the
+  // three columns still line up across rows.
+  const f10 = isBasic ? reqField(v, 'to10', 9) : '<span class="req-blank"></span>';
   row.innerHTML =
     `<label class="voc-allow"><input type="checkbox" value="${v}" checked>` +
     `<span>${colorVoc(v)}</span></label>` +
-    `<span class="voc-require">` +
-    `<input type="number" class="require" data-voc="${v}" min="1" max="90" step="1" placeholder="–" ` +
-    `aria-label="Minimum levels in 10→100">` +
-    `<i class="info" title="Require this vocation to take at least this many of the 90 ` +
-    `level-10→100 levels. Leave blank for no requirement. Setting it also allows the ` +
-    `vocation; the required minimums across all vocations must total ≤ 90.">ⓘ</i></span>`;
+    `<span class="voc-require">${f10}${reqField(v, 'to100', 90)}${reqField(v, 'to200', 100)}</span>`;
   const allow = row.querySelector('input[type="checkbox"]:not(.require)');
-  const reqInput = row.querySelector('input.require');
+  const reqInputs = [...row.querySelectorAll('input.require')];
   allow.addEventListener('change', () => {
     row.classList.toggle('off', !allow.checked);
-    if (!allow.checked) reqInput.value = ''; // un-allowing clears any requirement
+    if (!allow.checked) reqInputs.forEach((inp) => { inp.value = ''; }); // un-allow clears requirements
     updateRequireUI();
   });
-  reqInput.addEventListener('input', () => {
-    if (reqInput.value !== '') { allow.checked = true; row.classList.remove('off'); } // require implies allow
-    updateRequireUI();
-  });
+  for (const inp of reqInputs) {
+    inp.addEventListener('input', () => {
+      if (inp.value !== '') { allow.checked = true; row.classList.remove('off'); } // require implies allow
+      updateRequireUI();
+    });
+  }
   (isBasic ? leftCol : rightCol).appendChild(row);
 }
 
@@ -205,10 +229,11 @@ function updatePawnUI() {
   const on = pawnEl.checked;
   for (const row of vocsEl.querySelectorAll('.voc[data-hybrid]')) {
     const allow = row.querySelector('input[type="checkbox"]:not(.require)');
-    const reqInput = row.querySelector('input.require');
     allow.disabled = on;
-    reqInput.disabled = on;
-    if (on) reqInput.value = ''; // a pawn can't require a hybrid
+    for (const inp of row.querySelectorAll('input.require')) {
+      inp.disabled = on;
+      if (on) inp.value = ''; // a pawn can't require a hybrid
+    }
     row.classList.toggle('off', on || !allow.checked);
   }
   updateRequireUI();
@@ -408,25 +433,36 @@ function collectMaximize() {
   return maximizeEl.value || null;
 }
 
-// Collect per-vocation required minimums as { voc: minLevels }. Returns
-// { require, error }: error is set when any value is out of range or the minimums sum
-// past the 90 level-10→100 levels. Skips pawn-disabled (greyed) require fields.
+// Per-tier sizes/labels for the require fields (1→10 / 10→100 / 100→200).
+const TIER_SIZE = { to10: 9, to100: 90, to200: 100 };
+const TIER_LABEL = { to10: '1→10', to100: '10→100', to200: '100→200' };
+// Short tier codes used in the share URL's `req` param ("voc@10:n", etc.).
+const TIER_SHORT = { to10: '10', to100: '100', to200: '200' };
+const TIER_FROM_SHORT = { 10: 'to10', 100: 'to100', 200: 'to200' };
+
+// Collect per-tier, per-vocation required minimums as { to10, to100, to200 } maps.
+// Returns { require, error }: error is set when a value is out of range or a tier's
+// minimums sum past its size. Skips pawn-disabled (greyed) require fields.
 function collectRequire() {
-  const req = {};
-  let sum = 0;
+  const require = { to10: {}, to100: {}, to200: {} };
+  const sums = { to10: 0, to100: 0, to200: 0 };
   for (const input of vocsEl.querySelectorAll('.voc input.require')) {
     if (input.disabled || input.value === '') continue;
+    const tier = input.dataset.tier;
+    const size = TIER_SIZE[tier];
     const n = Number(input.value);
-    if (!Number.isInteger(n) || n < 1 || n > 90)
-      return { error: `Required minimum for ${VOC_LABEL[input.dataset.voc]} must be a ` +
-        'whole number from 1 to 90.' };
-    req[input.dataset.voc] = n;
-    sum += n;
+    if (!Number.isInteger(n) || n < 1 || n > size)
+      return { error: `Required ${TIER_LABEL[tier]} minimum for ${VOC_LABEL[input.dataset.voc]} ` +
+        `must be a whole number from 1 to ${size}.` };
+    require[tier][input.dataset.voc] = n;
+    sums[tier] += n;
   }
-  if (sum > 90)
-    return { error: `Required minimums total ${sum}, but only 90 levels are available ` +
-      '(10→100). Lower them so they sum to 90 or less.' };
-  return { require: req };
+  for (const tier of ['to10', 'to100', 'to200']) {
+    if (sums[tier] > TIER_SIZE[tier])
+      return { error: `${TIER_LABEL[tier]} required minimums total ${sums[tier]}, but only ` +
+        `${TIER_SIZE[tier]} levels are available there. Lower them so they sum to ${TIER_SIZE[tier]} or less.` };
+  }
+  return { require };
 }
 
 // Collect the per-stat bias map (omitting neutral 0). Skips the maximized stat,
@@ -517,8 +553,9 @@ function collectBounds() {
 //   <stat>_bias  = bias (-5..5)
 //   <stat>_match = "=partner" or "~partner" (emitted for both ends of a pair)
 //   max  = the single stat to maximize (ignores all other settings)
-//   req  = CSV of "voc:minLevels" pairs (each voc takes >= minLevels of the 90
-//          level-10->100 levels), e.g. "warrior:40,sorcerer:10"
+//   req  = CSV of "voc@tier:minLevels" pairs — tier is 10/100/200 (the 10->100 tier
+//          omits its "@100", so old "voc:n" links still parse), e.g.
+//          "warrior:40,fighter@10:9,sorcerer@200:30"
 //   b    = the displayed build's exact allocation (start + per-vocation level
 //          counts); when present, that exact build is shown on load (see decodeAlloc)
 // Stat keys are the canonical short names (hp, st, attack, ...).
@@ -543,11 +580,16 @@ function encodeSelections() {
   }
   const maximize = collectMaximize();
   if (maximize) params.set('max', maximize);
-  // Required vocations: "voc:minLevels" pairs. Read the DOM directly (skip pawn-greyed
-  // fields) so encoding never depends on collectRequire's validation passing.
+  // Required vocations: "voc@tier:n" pairs (tier = 10/100/200). The 10→100 tier omits
+  // its "@100" suffix so it stays back-compatible with the old "voc:n" links. Read the
+  // DOM directly (skip pawn-greyed fields) so encoding never depends on validation.
   const reqPairs = [...vocsEl.querySelectorAll('.voc input.require')]
     .filter((inp) => !inp.disabled && inp.value !== '')
-    .map((inp) => `${inp.dataset.voc}:${inp.value}`);
+    .map((inp) => {
+      const short = TIER_SHORT[inp.dataset.tier];
+      const at = inp.dataset.tier === 'to100' ? '' : `@${short}`;
+      return `${inp.dataset.voc}${at}:${inp.value}`;
+    });
   if (reqPairs.length) params.set('req', reqPairs.join(','));
   return params;
 }
@@ -589,17 +631,21 @@ function applySelections(params) {
   // Maximize dropdown.
   const maxStat = params.get('max');
   maximizeEl.value = STATS.includes(maxStat) ? maxStat : '';
-  // Required vocations: parse "voc:minLevels" pairs into a map, then fill each row's
-  // require field. A set requirement also force-checks its row's allow (require implies
-  // allow). Unknown vocs / out-of-range minimums are ignored.
+  // Required vocations: parse "voc@tier:n" pairs (tier defaults to 100, i.e. 10→100,
+  // for back-compat with old "voc:n" links) into a { 'voc|tier': n } map, then fill
+  // each row's field. A set requirement force-checks its row's allow. Unknown vocs,
+  // tiers, or out-of-range minimums are ignored.
   const reqMap = {};
   for (const pair of (params.get('req') ?? '').split(',').filter(Boolean)) {
-    const [v, raw] = pair.split(':');
+    const [lhs, raw] = pair.split(':');
+    if (raw == null) continue;
+    const [v, short = '100'] = lhs.split('@');
+    const tier = TIER_FROM_SHORT[short];
     const n = Number(raw);
-    if (Number.isInteger(n) && n >= 1 && n <= 90) reqMap[v] = n;
+    if (tier && Number.isInteger(n) && n >= 1 && n <= TIER_SIZE[tier]) reqMap[`${v}|${tier}`] = n;
   }
   for (const input of vocsEl.querySelectorAll('.voc input.require')) {
-    const n = reqMap[input.dataset.voc];
+    const n = reqMap[`${input.dataset.voc}|${input.dataset.tier}`];
     input.value = n != null ? n : '';
     if (n != null) {
       const row = input.closest('.voc');
