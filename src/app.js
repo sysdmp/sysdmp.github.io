@@ -896,16 +896,21 @@ function solveFailed(msg) {
 // (weight/kind/goal/bounds) reused on each cycle. altDone = generator exhausted.
 let altBuilds = [], altIndex = 0, altGen = null, altDone = false, altCtx = null;
 
-// Pull the next not-yet-seen alternative from the generator into altBuilds, skipping
-// any allocation equal to the displayed build. Returns true if one was added.
-function pullNextAlt() {
-  if (!altGen || altDone) return false;
+// Drain the generator: find ALL same-stats alternatives (up to ALT_CAP) into
+// altBuilds, skipping any allocation equal to one already shown. This is the slow,
+// eager search — run once, on the first "↻ another" click. Sets altDone when the
+// generator is fully exhausted (vs. stopped at the cap → altCapped).
+const ALT_CAP = 50;
+let altCapped = false;
+function findAllAlts() {
+  if (!altGen || altDone) return;
   const seen = new Set(altBuilds.map(allocKey));
   for (;;) {
+    if (altBuilds.length >= ALT_CAP) { altCapped = true; break; }
     const { value, done } = altGen.next();
-    if (done) { altDone = true; return false; }
+    if (done) { altDone = true; break; }
     const k = allocKey(value);
-    if (!seen.has(k)) { altBuilds.push(value); return true; }
+    if (!seen.has(k)) { altBuilds.push(value); seen.add(k); }
   }
 }
 
@@ -933,20 +938,28 @@ function renderBuild(b) {
   updateAltsUI();
 }
 
-// Show/update the lazy cycler control. The "↻ another" button stays available until
-// the generator is exhausted (then it disables, and once we've also reached the last
-// found build there are no more to show). The count is "build N of M" — M followed by
-// "+" while more may still exist (generator not yet exhausted).
+// Show/update the alternatives control. Before the search has run (just the initial
+// build, generator not exhausted) the button invites "find alternatives". After the
+// search: if others were found it cycles "build N of M" (M+ if capped); if none, it
+// disables and reads "no alternatives".
 function updateAltsUI() {
   const alts = $('alts');
   alts.hidden = false;
-  const more = !altDone; // more alternatives might still be found
-  const total = `${altBuilds.length}${more ? '+' : ''}`;
-  $('alt-count').textContent = altBuilds.length > 1 ? `build ${altIndex + 1} of ${total}` : '';
+  const searched = altDone || altBuilds.length > 1; // the full search has been run
   const btn = $('alt-refresh');
-  // The button can act while there are unseen found builds OR the generator may yield more.
-  btn.disabled = !more && altIndex >= altBuilds.length - 1;
-  btn.textContent = altBuilds.length > 1 || more ? '↻ another' : 'no alternatives';
+  if (!searched) {
+    $('alt-count').textContent = '';
+    btn.disabled = false;
+    btn.textContent = '↻ find alternatives';
+  } else if (altBuilds.length > 1) {
+    $('alt-count').textContent = `build ${altIndex + 1} of ${altBuilds.length}${altCapped ? '+' : ''}`;
+    btn.disabled = false;
+    btn.textContent = '↻ another';
+  } else {
+    $('alt-count').textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'no alternatives';
+  }
 }
 
 async function runSolve(pinnedBuild = null) {
@@ -1001,6 +1014,7 @@ async function runSolve(pinnedBuild = null) {
     altBuilds = [build];
     altIndex = 0;
     altDone = false;
+    altCapped = false;
     altGen = sameStatsBuilds(highs, solveOpts, build.stats);
     altCtx = {
       weight, bounds,
@@ -1027,17 +1041,25 @@ solveBtn.disabled = true;
 // Wrap so the click Event isn't passed as runSolve's pinnedBuild argument.
 solveBtn.addEventListener('click', () => runSolve());
 
-// "↻ another": show the next same-stats alternative, computing it on demand. If we're
-// at the end of what's been found, pull the next from the generator (one HiGHS solve).
-$('alt-refresh').addEventListener('click', () => {
-  if (altIndex < altBuilds.length - 1) {
-    altIndex += 1; // already-found build
-  } else if (pullNextAlt()) {
-    altIndex = altBuilds.length - 1; // newly found build
-  } else {
-    updateAltsUI(); // exhausted: refresh the disabled/“no more” state
-    return;
+// "↻ another": the first click eagerly finds ALL same-stats alternatives (the slow
+// search — initial solve stays fast by deferring it to here), showing a spinner;
+// subsequent clicks just cycle the complete set, wrapping at the end.
+$('alt-refresh').addEventListener('click', async () => {
+  const btn = $('alt-refresh');
+  // Not yet gathered? Run the full search once (it can be slow), with the spinner.
+  if (!altDone && altBuilds.length === 1) {
+    btn.disabled = true;
+    status.textContent = 'Searching for alternatives…';
+    $('spinner').hidden = false;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try { findAllAlts(); }
+    finally { $('spinner').hidden = true; }
+    status.textContent = altBuilds.length > 1
+      ? `Found ${altBuilds.length}${altCapped ? '+' : ''} builds with the same stats.`
+      : 'No other builds reach these exact stats.';
   }
+  // Cycle the found set (wrapping).
+  if (altBuilds.length > 1) altIndex = (altIndex + 1) % altBuilds.length;
   renderBuild(altBuilds[altIndex]);
 });
 
@@ -1084,7 +1106,7 @@ function resetSelections() {
   $('results').style.display = 'none';
   $('results').classList.remove('stale'); // clear stale dimming on reset
   $('stale-banner').hidden = true;
-  $('alts').hidden = true; altBuilds = []; altIndex = 0; altGen = null; altDone = false; // clear the cycler
+  $('alts').hidden = true; altBuilds = []; altIndex = 0; altGen = null; altDone = false; altCapped = false; // clear the cycler
   if (quoteTimer) { clearInterval(quoteTimer); quoteTimer = null; } // results hidden; stop rotating
   history.replaceState(null, '', location.origin + location.pathname);
   status.classList.remove('err');
