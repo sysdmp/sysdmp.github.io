@@ -527,20 +527,20 @@ function flatAlloc(counts) {
 }
 
 /**
- * Enumerate builds that reach the EXACT same six final stats as a solved build but
- * via a different vocation/level allocation (and possibly a different starting
- * vocation). Pins every stat to equality and walks distinct allocations across all
- * allowed starts using no-good cuts.
+ * Lazily yield builds that reach the EXACT same six final stats as a solved build,
+ * one at a time, each via a distinct vocation/level allocation (and possibly a
+ * different starting vocation). Pins every stat to equality and walks distinct
+ * allocations across all allowed starts using no-good cuts — yielding after each so
+ * the caller controls how many to compute (each is one blocking HiGHS solve).
  *
- * @param {object} highs    initialized HiGHS instance.
- * @param {object} opts     the same options passed to solveMaxTotal (pool/pawn/weight/
- *                          require/startPool/no-switcheroo are honored; bounds/match/
- *                          bias/maximize are irrelevant once all stats are pinned).
- * @param {object} stats    the target final stats { hp, st, ... } to match exactly.
- * @param {number} [cap=50] max builds to return; if more exist, `capped` is true.
- * @returns {{builds: Array<{start,counts,stats}>, capped: boolean}}
+ * @param {object} highs   initialized HiGHS instance.
+ * @param {object} opts    the same options passed to solveMaxTotal (pool/pawn/weight/
+ *                         require/startPool/no-switcheroo are honored; bounds/match/
+ *                         bias/maximize are irrelevant once all stats are pinned).
+ * @param {object} stats   the target final stats { hp, st, ... } to match exactly.
+ * @yields {{start, counts, stats}} each distinct same-stats build.
  */
-export function enumerateSameStats(highs, opts = {}, stats, cap = 50) {
+export function* sameStatsBuilds(highs, opts = {}, stats) {
   let pool = opts.allowed ?? ALL;
   if (opts.pawn) pool = pool.filter((v) => !PAWN_EXCLUDED.includes(v));
   const starts = (opts.startPool ?? BASIC).filter((v) => pool.includes(v));
@@ -554,21 +554,31 @@ export function enumerateSameStats(highs, opts = {}, stats, cap = 50) {
   const modelBase = { pool, bounds, baseSt, pawn: opts.pawn, match: [],
                       noPre10Switch: !!opts.noPre10Switch, reqVocs };
 
-  const builds = [];
-  let capped = false;
   for (const start of starts) {
     const nogoods = []; // allocations already seen for THIS start
     for (;;) {
-      if (builds.length >= cap) { capped = true; break; }
       const lp = buildLP({ ...modelBase, start, objStat: null, nogoods });
       if (lp === null) break;
       const sol = highs.solve(lp, SOLVE_OPTS);
       if (sol.Status !== 'Optimal') break;
       const counts = decode(sol, pool);
-      builds.push({ start, counts, stats: statsOf(start, counts, baseSt) });
+      yield { start, counts, stats: statsOf(start, counts, baseSt) };
       nogoods.push(flatAlloc(counts));
     }
-    if (capped) break;
+  }
+}
+
+/**
+ * Eager wrapper over sameStatsBuilds: collect up to `cap` same-stats builds.
+ * @returns {{builds: Array<{start,counts,stats}>, capped: boolean}}
+ *   `capped` is true when more builds exist beyond the cap.
+ */
+export function enumerateSameStats(highs, opts = {}, stats, cap = 50) {
+  const builds = [];
+  let capped = false;
+  for (const b of sameStatsBuilds(highs, opts, stats)) {
+    if (builds.length >= cap) { capped = true; break; }
+    builds.push(b);
   }
   return { builds, capped };
 }

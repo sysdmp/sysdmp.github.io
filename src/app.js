@@ -4,7 +4,7 @@
 // lives in src/; `make` bundles it into a single self-contained index.html.
 
 import { loadHighs } from './highs-loader.js';
-import { solveMaxTotal, enumerateSameStats } from './solver.js';
+import { solveMaxTotal, sameStatsBuilds } from './solver.js';
 import {
   BASIC, ALL, STATS, WEIGHT_CLASSES, WEIGHT_BASE_ST, DEFAULT_WEIGHT,
   WEIGHT_RANGE, WEIGHT_STAREGEN, WEIGHT_ENCUMBRANCE,
@@ -890,9 +890,31 @@ function solveFailed(msg) {
 }
 
 // --- alternative builds (same exact stats, different vocation allocation) ---
-// altBuilds[0] is the displayed solve; the rest come from enumerateSameStats. altCtx
-// carries the per-solve render context (weight/kind/goal/bounds) reused on each cycle.
-let altBuilds = [], altIndex = 0, altCapped = false, altCtx = null;
+// Lazy: altBuilds grows as the user asks for more. altBuilds[0] is the displayed
+// solve; altGen is the live generator producing further same-stats allocations
+// (pulled one per "↻ another" click). altCtx carries the per-solve render context
+// (weight/kind/goal/bounds) reused on each cycle. altDone = generator exhausted.
+let altBuilds = [], altIndex = 0, altGen = null, altDone = false, altCtx = null;
+
+// Pull the next not-yet-seen alternative from the generator into altBuilds, skipping
+// any allocation equal to the displayed build. Returns true if one was added.
+function pullNextAlt() {
+  if (!altGen || altDone) return false;
+  const seen = new Set(altBuilds.map(allocKey));
+  for (;;) {
+    const { value, done } = altGen.next();
+    if (done) { altDone = true; return false; }
+    const k = allocKey(value);
+    if (!seen.has(k)) { altBuilds.push(value); return true; }
+  }
+}
+
+// Canonical key for an allocation, to dedup the displayed build vs. the generator.
+function allocKey(b) {
+  return b.start + '|' + ['to10', 'to100', 'to200']
+    .map((t) => Object.entries(b.counts[t] || {}).sort().map(([v, n]) => `${v}:${n}`).join(','))
+    .join('|');
+}
 
 // Render one build into the results panel: heading, plan, owoc link, share URL, and
 // the alternatives counter. Stats/weight-info are rendered once at solve time (they're
@@ -911,13 +933,20 @@ function renderBuild(b) {
   updateAltsUI();
 }
 
-// Show/update the cycler control. Hidden when only one build exists.
+// Show/update the lazy cycler control. The "↻ another" button stays available until
+// the generator is exhausted (then it disables, and once we've also reached the last
+// found build there are no more to show). The count is "build N of M" — M followed by
+// "+" while more may still exist (generator not yet exhausted).
 function updateAltsUI() {
   const alts = $('alts');
-  if (altBuilds.length <= 1) { alts.hidden = true; return; }
   alts.hidden = false;
-  const total = altCapped ? `${altBuilds.length}+` : `${altBuilds.length}`;
-  $('alt-count').textContent = `build ${altIndex + 1} of ${total}`;
+  const more = !altDone; // more alternatives might still be found
+  const total = `${altBuilds.length}${more ? '+' : ''}`;
+  $('alt-count').textContent = altBuilds.length > 1 ? `build ${altIndex + 1} of ${total}` : '';
+  const btn = $('alt-refresh');
+  // The button can act while there are unseen found builds OR the generator may yield more.
+  btn.disabled = !more && altIndex >= altBuilds.length - 1;
+  btn.textContent = altBuilds.length > 1 || more ? '↻ another' : 'no alternatives';
 }
 
 async function runSolve(pinnedBuild = null) {
@@ -951,9 +980,9 @@ async function runSolve(pinnedBuild = null) {
   solveBtn.disabled = true;
   status.textContent = 'Solving…';
   $('spinner').hidden = false;
-  // The solve (and the same-stats enumeration — up to 50 blocking HiGHS solves) runs
-  // synchronously and freezes the main thread, so yield twice to let the browser
-  // actually paint the spinner before we block on it.
+  // The solve runs synchronously and freezes the main thread, so yield twice to let
+  // the browser paint the spinner before we block on it. (Same-stats alternatives are
+  // now found lazily, on demand — see the ↻ button — so the initial solve is just one.)
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   try {
     const t0 = performance.now();
@@ -966,18 +995,13 @@ async function runSolve(pinnedBuild = null) {
       ? { ...pinnedBuild, stats: statsOf(pinnedBuild.start, pinnedBuild.counts, baseSt) }
       : solveMaxTotal(highs, solveOpts);
     build.total = STATS.reduce((a, k) => a + build.stats[k], 0);
-    // Enumerate other allocations that reach the EXACT same stats (eager, cap 50).
-    const { builds: others, capped } = enumerateSameStats(highs, solveOpts, build.stats, 50);
     const ms = (performance.now() - t0).toFixed(0);
-    // altBuilds[0] is the displayed build; append the enumeration's other allocations
-    // (drop the one equal to the displayed build so it isn't shown twice).
-    const sameAlloc = (x) => x.start === build.start &&
-      ['to10', 'to100', 'to200'].every((t) =>
-        JSON.stringify(Object.entries(x.counts[t] || {}).sort()) ===
-        JSON.stringify(Object.entries(build.counts[t] || {}).sort()));
-    altBuilds = [build, ...others.filter((b) => !sameAlloc(b))];
+    // Show this build first; alternatives (same exact stats) are pulled lazily from
+    // the generator one at a time when the user clicks "↻ another".
+    altBuilds = [build];
     altIndex = 0;
-    altCapped = capped;
+    altDone = false;
+    altGen = sameStatsBuilds(highs, solveOpts, build.stats);
     altCtx = {
       weight, bounds,
       kind: toggles.pawn ? 'pawn' : 'Arisen',
@@ -1003,10 +1027,17 @@ solveBtn.disabled = true;
 // Wrap so the click Event isn't passed as runSolve's pinnedBuild argument.
 solveBtn.addEventListener('click', () => runSolve());
 
-// Cycle to the next alternative build (same stats, different vocations).
+// "↻ another": show the next same-stats alternative, computing it on demand. If we're
+// at the end of what's been found, pull the next from the generator (one HiGHS solve).
 $('alt-refresh').addEventListener('click', () => {
-  if (altBuilds.length <= 1) return;
-  altIndex = (altIndex + 1) % altBuilds.length;
+  if (altIndex < altBuilds.length - 1) {
+    altIndex += 1; // already-found build
+  } else if (pullNextAlt()) {
+    altIndex = altBuilds.length - 1; // newly found build
+  } else {
+    updateAltsUI(); // exhausted: refresh the disabled/“no more” state
+    return;
+  }
   renderBuild(altBuilds[altIndex]);
 });
 
@@ -1053,7 +1084,7 @@ function resetSelections() {
   $('results').style.display = 'none';
   $('results').classList.remove('stale'); // clear stale dimming on reset
   $('stale-banner').hidden = true;
-  $('alts').hidden = true; altBuilds = []; altIndex = 0; // clear the cycler
+  $('alts').hidden = true; altBuilds = []; altIndex = 0; altGen = null; altDone = false; // clear the cycler
   if (quoteTimer) { clearInterval(quoteTimer); quoteTimer = null; } // results hidden; stop rotating
   history.replaceState(null, '', location.origin + location.pathname);
   status.classList.remove('err');
