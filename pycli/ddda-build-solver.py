@@ -516,8 +516,8 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
 
     `verbose`: when True, run CBC with msg=True so it prints its own solver log.
 
-    `time_limit`: per-CBC-solve cap in seconds; None disables it (let CBC grind
-    to a proven optimum, however long that takes).
+    `time_limit`: per-CBC-solve cap in seconds (always 5 in practice; None would
+    disable it and let CBC grind to a proven optimum, however long that takes).
     """
     # Time-cap each CBC solve. Some flag combinations (e.g. --divisor 100 with a
     # continuous --bias t) leave CBC with the optimum already in hand but unable
@@ -540,7 +540,6 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         # timed out: usable iff it produced variable values
         return any(v.value() is not None for v in prob.variables())
     rounding = dict(rounding or {})
-    weights = BALANCE_WEIGHTS
     adv_pool = list(allowed) if allowed is not None else ALL
     starts = list(start_pool) if start_pool is not None else BASIC
     # basic vocations usable in the 1->10 range: those in the (avoid-filtered) pool
@@ -568,7 +567,7 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
     # winner-take-all). (start-independent.)
     # Scaled to INTEGER by OBJ_SCALE so CBC and the web's HiGHS compute identical
     # objective values (matches effWeights in src/solver.js).
-    eff_weights = {k: round(OBJ_SCALE * weights[k]) for k in STATS}
+    eff_weights = {k: round(OBJ_SCALE * BALANCE_WEIGHTS[k]) for k in STATS}
     for stat, (sign, idx) in bias_ranks(bias_tiers).items():
         eff_weights[stat] += round(sign * OBJ_SCALE * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[stat])
 
