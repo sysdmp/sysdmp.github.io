@@ -497,7 +497,7 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
 def solve_ilp(cons, count=1, rounding=None, match=(),
               base_st=None, allowed=None,
               maximize=(), bias_tiers=(), start_pool=None,
-              verbose=False, time_limit=5, pawn=False, no_early_switch=False,
+              verbose=False, time_limit=30, pawn=False, no_early_switch=False,
               require=None):
     """Exact integer-linear solver. Returns a list of distinct feasible builds,
     each a tuple (penalty, start, c10, c100, c200, stats); penalty is always 0
@@ -549,7 +549,7 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
 
     `verbose`: when True, run CBC with msg=True so it prints its own solver log.
 
-    `time_limit`: per-CBC-solve cap in seconds (always 5 in practice; None would
+    `time_limit`: per-CBC-solve cap in seconds (always 30 in practice; None would
     disable it and let CBC grind to a proven optimum, however long that takes).
     """
     # Time-cap each CBC solve. Some flag combinations (e.g. --divisor 100 with a
@@ -572,6 +572,14 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
             return False
         # timed out: usable iff it produced variable values
         return any(v.value() is not None for v in prob.variables())
+
+    def solved_optimal(prob):
+        # Strict: only a PROVEN-optimal solve is trustworthy. Used by the phase-2
+        # enumeration, where a timed-out incumbent on the progressively no-good-cut
+        # problem can be infeasible (e.g. a leveling block summing to 89, not 90) yet
+        # still carry variable values -- solved_ok would wrongly accept it. Phase 2 is
+        # pure feasibility, so "not optimal" means "no more valid builds -> stop".
+        return pulp.LpStatus[prob.status] == "Optimal"
     rounding = dict(rounding or {})
     adv_pool = list(allowed) if allowed is not None else ALL
     starts = list(start_pool) if start_pool is not None else BASIC
@@ -789,10 +797,17 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
         cut_id = 0
         while len(builds) < count:
             prob.solve(cbc)
-            if not solved_ok(prob):
-                break  # no more distinct same-stats builds for this start
+            # Require a PROVEN-optimal (genuinely feasible) solution: a timed-out
+            # incumbent here can violate the stat-equality pins or a block-size sum, so
+            # treat anything non-optimal as "no more same-stats builds for this start".
+            if not solved_optimal(prob):
+                break
             c10, c100, c200 = read_counts(x10, x100, x200)
             s = stats_of(start, c10, c100, c200, base_st=base_st)
+            # Guard: the decoded build must actually hit the pinned target stats. (Belt
+            # and suspenders against any solver imprecision -- a mismatch means stop.)
+            if any(s[k] != target[k] for k in STATS):
+                break
             builds.append((penalty(s, eval_cons), start, c10, c100, c200, s))
 
             # No-good cut: force the next solution to differ from this one in at least
@@ -1779,7 +1794,7 @@ def main():
                            allowed=allowed, maximize=maximize,
                            bias_tiers=bias_tiers,
                            start_pool=start_pool, verbose=a.verbose_cbc and not a.json,
-                           time_limit=5, pawn=a.pawn,
+                           time_limit=30, pawn=a.pawn,
                            no_early_switch=a.no_early_switcheroo, require=require)
         solve_time = time.perf_counter() - _t0
         if not builds:

@@ -49,16 +49,18 @@ function pyArgs(opts) {
   // Neither side applies default stat floors anymore, so no --no-default needed:
   // both solve fully unconstrained unless the opts say otherwise.
   const args = [];
+  const divisors = [];   // collect into ONE --divisor flag (repeating it = last wins)
   for (const k of STATS) {
     const b = opts.bounds?.[k];
     if (!b) continue;
-    if (b.divisor != null) args.push('--divisor', `${k}=${b.divisor}`);
+    if (b.divisor != null) divisors.push(`${k}=${b.divisor}`);
     if (b.min != null && b.max != null && b.min === b.max) args.push(`--${k}`, String(b.min));
     else {
       if (b.min != null) args.push(`--${k}-min`, String(b.min));
       if (b.max != null) args.push(`--${k}-max`, String(b.max));
     }
   }
+  if (divisors.length) args.push('--divisor', divisors.join(','));
   if (opts.match?.length) {
     args.push('--match', opts.match.map(({ a, b, tol }) => `${a}${tol === 0 ? '=' : '~'}${b}`).join(','));
   }
@@ -259,7 +261,10 @@ function compareEnumerate(label, opts, cap = 30) {
 // each land on a different but equally-optimal vector. (2) pins down that both are
 // genuine optima; (3) pins down that phase 2 is a faithful same-stats enumeration.
 // (wScore — the balanced weighted score — is defined near the top of this file.)
-function compareCountNatural(label, opts, cap = 30) {
+// `expectCount`, when given, additionally asserts that BOTH solvers enumerate
+// exactly that many same-stats builds — a regression guard for the phase-2 no-good
+// enumeration (a CBC timeout once made Python emit bogus extra/duplicate builds).
+function compareCountNatural(label, opts, cap = 30, expectCount = null) {
   count++;
   let seed;
   try { seed = solveMaxTotal(highs, opts); }
@@ -286,13 +291,19 @@ function compareCountNatural(label, opts, cap = 30) {
   const webSet = new Set(webBuilds.map((b) => allocKey(b.start, b.counts)));
   const capHit = webCapped || webBuilds.length >= cap || pyBuilds.length >= cap;
   const setsMatch = webSet.size === pySet.size && [...webSet].every((k) => pySet.has(k));
+  // (4) py emits no duplicate allocations (a no-good cut that fails to exclude a prior
+  //     solution would inflate the list); and, if expectCount given, the exact total.
+  const pyNoDupes = pySet.size === pyBuilds.length;
+  const countOk = expectCount == null || (pySet.size === expectCount && webSet.size === expectCount);
 
-  const ok = !capHit && sameStats && scoreMatch && setsMatch;
+  const ok = !capHit && sameStats && scoreMatch && setsMatch && pyNoDupes && countOk;
   let detail = `py ${pySet.size} builds @ score ${wScore(pyStats).toFixed(1)}`;
   if (capHit) detail += ' [CAP HIT — pick a smaller target]';
   else if (!sameStats) detail += ' [py builds have differing stats]';
   else if (!scoreMatch) detail += ` [score py ${wScore(pyStats).toFixed(1)} vs web ${wScore(seed.stats).toFixed(1)}]`;
   else if (!setsMatch) detail += ` [enum mismatch: web ${webSet.size} vs py ${pySet.size}]`;
+  else if (!pyNoDupes) detail += ` [py emitted ${pyBuilds.length - pySet.size} duplicate allocation(s)]`;
+  else if (!countOk) detail += ` [expected ${expectCount}, got web ${webSet.size} / py ${pySet.size}]`;
   console.log(`${ok ? 'ok  ' : 'FAIL'} - ${label}: ${detail}`);
   if (!ok) failures++;
 }
@@ -361,6 +372,25 @@ compareCountNatural('count: maximize mdefense + pawn', { maximize: 'mdefense', p
 compareCountNatural('count: bias attack=mattack', { bias: { attack: 3, mattack: 3 } });
 compareCountNatural('count: weight LL', { weight: 'LL' });
 compareCountNatural('count: match attack=mattack', { match: [{ a: 'attack', b: 'mattack', tol: 0 }] });
+
+// A real multi-alternative optimum: this constrained build (divisors + bias + match +
+// require, fighter start) is reachable exactly 30 ways. Guards the phase-2 enumeration
+// against both under- (CBC timeout dropping valid builds) and over-counting (a timed-out
+// incumbent or a weak no-good cut emitting bogus/duplicate builds). cap=31 so 30 < cap.
+// SLOW (~45s): proving exactly 30 (no 31st build) forces CBC to exhaust the search under
+// all 30 no-good cuts. Opt-in via DDDA_SLOW=1 so the default suite stays fast.
+if (process.env.DDDA_SLOW) {
+  compareCountNatural('count: 30-build optimum (divisor+bias+match+require)', {
+    startPool: ['fighter'],
+    bounds: { hp: { min: 3500, divisor: 100 }, st: { min: 4500, divisor: 100 },
+              attack: { divisor: 5 }, defense: { divisor: 5 }, mdefense: { divisor: 5 } },
+    bias: { attack: 5, mattack: 5, mdefense: 3 },
+    match: [{ a: 'attack', b: 'mattack', tol: 0 }],
+    require: { to10: { fighter: 9 }, to100: { assassin: 5 } },
+  }, 31, 30);
+} else {
+  console.log('ok   - count: 30-build optimum [skipped — set DDDA_SLOW=1 to run (~45s)]');
+}
 
 // ---------------------------------------------------------------------------
 // DYNAMIC suite — random cases each run (fuzz). Seeded for reproducibility:
