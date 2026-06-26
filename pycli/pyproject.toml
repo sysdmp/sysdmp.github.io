@@ -1,9 +1,9 @@
 [project]
 name = "dragons-dogma-stat-planner"
-version = "0.10.0"
+version = "3.0.0"
 description = "Solver for Dragon's Dogma™: Dark Arisen level-200 character builds — finds the vocation leveling plan that meets target stats."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -15,7 +15,7 @@ classifiers = [
     "Topic :: Games/Entertainment",
 ]
 dependencies = [
-    "pulp>=3.3.1",
+    "pulp>=3.3.2",
 ]
 
 # Ruff lint config (run via `uvx ruff check pycli`, wired into `npm test`). Pin the
@@ -24,7 +24,7 @@ dependencies = [
 # error subset E4/E7/E9 (imports, statement style, syntax) — but NOT E501
 # line-too-long, which this codebase intentionally exceeds in data tables and help text.
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "W"]
