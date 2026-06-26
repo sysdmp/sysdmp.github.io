@@ -54,4 +54,4 @@ found 1 build(s):
 +--------------+-------+---------------------------------+
  owoc planner: https://owoc.github.io/#af1502011d25000000000000000a5a00000000080100
 
-solve time: 0.070s
+solve time: 0.187s

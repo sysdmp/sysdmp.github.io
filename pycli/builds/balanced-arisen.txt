@@ -54,4 +54,4 @@ found 1 build(s):
  owoc planner: https://owoc.github.io/#af060100040a04004100000001000062000001000603
   (planner assumes weight M; this S build's st will read differently there — st here is authoritative)
 
-solve time: 0.501s
+solve time: 1.644s

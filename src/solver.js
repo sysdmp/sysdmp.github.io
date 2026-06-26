@@ -19,7 +19,7 @@
 import {
   STATS, basic, BASIC, ALL, growth, statsOf, TIERS, TIER_SIZE,
   WEIGHT_BASE_ST, MAX_GAIN, PAWN_EXCLUDED, BALANCE_WEIGHTS,
-  BIAS_BOOST_BASE, BIAS_BOOST_FALLOFF,
+  BIAS_BOOST_BASE, BIAS_BOOST_FALLOFF, OBJ_SCALE, TIEBREAK_ORDER,
 } from './data.js';
 
 // Vocations usable in each tier: 1->10 is basics only; later tiers, any.
@@ -83,12 +83,15 @@ export function biasRanks(tiers) {
   return ranks;
 }
 
-// Per-stat objective weight: the balance weight plus the bias adjustment
-// (sign * BASE * FALLOFF**idx / MAX_GAIN[k]). Both signs adjust the weight.
+// Per-stat objective weight, scaled to an INTEGER by OBJ_SCALE: the balance weight
+// plus the bias adjustment (sign * BASE * FALLOFF**idx / MAX_GAIN[k]); both signs
+// adjust the weight. OBJ_SCALE (960) is chosen so every term here is an exact
+// integer, so HiGHS and CBC compute identical objective values (see data.js).
 export function effWeights(ranks) {
-  const w = { ...BALANCE_WEIGHTS };
+  const w = {};
+  for (const k of STATS) w[k] = Math.round(OBJ_SCALE * BALANCE_WEIGHTS[k]);
   for (const [k, { sign, idx }] of Object.entries(ranks)) {
-    w[k] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[k];
+    w[k] += Math.round(sign * OBJ_SCALE * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[k]);
   }
   return w;
 }
@@ -129,15 +132,19 @@ function expr(terms) {
 // the sentinel 'bias_t' maximizes the continuous bias-floor variable; null uses the
 // balanced Σ_k effW(k)*value(k). Either way, ALL the per-stat/match/etc. constraints
 // below still apply.
-// `pin`: optional { stat, value } — forces value(stat) >= value, used as the
-// second pass of a lexicographic maximize to lock in the achieved optimum.
-// `effW`: the per-stat objective weights (balance + bias adjustment) for the
-// balanced objective. `shares`: [{stat, share}] for the bias-floor pass (objStat
-// === 'bias_t'). `floors`: { stat: minValue } baked-in bias floors (final solve).
+// `pins`: optional list of { stat, value, op } — constrains value(stat) op value
+// (op '>=' floors a lexicographic-maximize optimum; '=' locks a resolved tie-break
+// stat; defaults to '>='). Used by the maximize and tie-break passes.
+// `scoreFloor`: optional { value } — floors the balanced objective Σ effW(k)·value(k)
+// at `value`, so a tie-break pass can't trade primary score for a favored stat.
+// `effW`: the per-stat (integer, OBJ_SCALE'd) objective weights for the balanced
+// objective. `shares`: [{stat, share}] for the bias-floor pass (objStat === 'bias_t').
+// `floors`: { stat: minValue } baked-in bias floors (final solve).
 function buildLP({ start, pool, bounds, baseSt, pawn, match,
-                   objStat = null, pin = null, noPre10Switch = false,
-                   reqVocs = {}, effW = BALANCE_WEIGHTS, shares = [], floors = null,
+                   objStat = null, pins = [], scoreFloor = null, noPre10Switch = false,
+                   reqVocs = {}, effW = null, shares = [], floors = null,
                    nogoods = [] }) {
+  if (effW == null) { effW = {}; for (const k of STATS) effW[k] = Math.round(OBJ_SCALE * BALANCE_WEIGHTS[k]); }
   const base = { ...basic[start].init };
   if (baseSt != null) base.st = baseSt;
 
@@ -217,12 +224,32 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
     }
   }
 
-  // Lexicographic-maximize pin: value(stat) >= achieved optimum.
-  if (pin) {
-    const terms = statTerms(pin.stat, pool);
-    const rhs = pin.value - base[pin.stat];
-    if (terms.length === 0) { if (rhs > 0) return null; } // stat fixed at base
-    else cons.push(`pin_${pin.stat}: ${expr(terms)} >= ${rhs}`);
+  // Lexicographic pins: value(stat) op achieved optimum. op '>=' floors a maximize
+  // optimum; '=' locks a resolved tie-break stat at its exact value.
+  for (let i = 0; i < pins.length; i++) {
+    const p = pins[i];
+    const op = p.op || '>=';
+    const terms = statTerms(p.stat, pool);
+    const rhs = p.value - base[p.stat];
+    if (terms.length === 0) {
+      // stat fixed at base: feasible only if base already satisfies the relation
+      if (op === '>=' ? 0 < rhs : 0 !== rhs) return null;
+    } else {
+      cons.push(`pin${i}_${p.stat}: ${expr(terms)} ${op} ${rhs}`);
+    }
+  }
+
+  // Balanced-score floor: Σ effW(k)·value(k) >= value. value(k) = base[k] + Σ terms,
+  // so Σ_k effW[k]·Σterms_k >= value - Σ_k effW[k]·base[k]. Integer coefficients
+  // (effW is OBJ_SCALE'd). Lets a tie-break pass hold the primary optimum fixed.
+  if (scoreFloor) {
+    const coef = {};
+    for (const k of STATS)
+      for (const [g, n] of statTerms(k, pool)) coef[n] = (coef[n] || 0) + effW[k] * g;
+    const terms = Object.entries(coef).filter(([, g]) => g !== 0).map(([n, g]) => [g, n]);
+    const rhs = scoreFloor.value - STATS.reduce((a, k) => a + effW[k] * base[k], 0);
+    if (terms.length === 0) { if (rhs > 0) return null; }
+    else cons.push(`scorefloor: ${expr(terms)} >= ${rhs}`);
   }
 
   // Per-stat min/max/divisor constraints. value(k) = base[k] + Σ terms.
@@ -421,18 +448,22 @@ export function solveMaxTotal(highs, opts = {}) {
     return sol.Status === 'Optimal' ? sol : null;
   };
 
+  // The integer balanced score of a stat vector (matches the LP objective exactly).
+  const scoreOf = (stats) => STATS.reduce((a, k) => a + effW[k] * stats[k], 0);
+
   // Per-start pipeline mirroring the Python prototype: maximize pin (structural-only)
   // -> bias-floor t maximization (positive tiers) -> bake integer floors -> final
-  // eff-weighted solve with bounds/match. Returns a candidate or null.
+  // eff-weighted solve -> deterministic tie-break. Returns a candidate or null.
   const solveStart = (start) => {
     // 1. Lexicographic maximize pin: the chosen stat's global optimum over the
     //    structural build space only (no bounds/match), pinned for the later passes.
-    let pin = null, lexOpt = null;
+    const pins = [];
+    let lexOpt = null;
     if (maximize) {
       const sol = solveLP({ start, objStat: maximize, bounds: {}, match: [] });
       if (!sol) return null;
       const peak = Math.round(statsOf(start, decode(sol, pool), baseSt)[maximize]);
-      pin = { stat: maximize, value: peak };
+      pins.push({ stat: maximize, value: peak, op: '>=' });
       lexOpt = peak;
     }
 
@@ -441,7 +472,7 @@ export function solveMaxTotal(highs, opts = {}) {
     //    floors. Skipped when there are no positive tiers.
     let floors = null;
     if (shares.length) {
-      const sol = solveLP({ start, objStat: 'bias_t', pin, shares });
+      const sol = solveLP({ start, objStat: 'bias_t', pins, shares });
       if (!sol) return null;
       const t = sol.Columns.bias_t?.Primal ?? 0;
       floors = {};
@@ -450,31 +481,48 @@ export function solveMaxTotal(highs, opts = {}) {
       }
     }
 
-    // 3. Final solve: balanced eff-weighted objective, pin, bounds/match,
-    //    baked floors.
-    const sol = solveLP({ start, objStat: null, pin, floors });
+    // 3. Final solve: balanced eff-weighted objective, pins, bounds/match, baked
+    //    floors. Fixes the optimal SCORE (but the stat-vector may be a degenerate tie).
+    let sol = solveLP({ start, objStat: null, pins, floors });
     if (!sol) return null;
+    const optScore = scoreOf(statsOf(start, decode(sol, pool), baseSt));
+
+    // 4. Deterministic tie-break: hold the optimal score as a floor, then maximize
+    //    each TIEBREAK_ORDER stat in turn, locking the achieved value. This collapses
+    //    the degenerate optima to one canonical stat-vector that any exact MILP engine
+    //    reaches — so the web (HiGHS) and Python (CBC) solvers agree on the stats.
+    const scoreFloor = { value: optScore };
+    const lockPins = [...pins];   // pins so far stay in force; tie-break locks append
+    for (const stat of TIEBREAK_ORDER) {
+      const s = solveLP({ start, objStat: stat, pins: lockPins, scoreFloor, floors });
+      if (!s) return null;        // score floor + prior locks always remain feasible
+      const val = Math.round(statsOf(start, decode(s, pool), baseSt)[stat]);
+      lockPins.push({ stat, value: val, op: '=' });
+      sol = s;
+    }
+
     const counts = decode(sol, pool);
     const stats = statsOf(start, counts, baseSt);
-    return { start, counts, stats, lexOpt };
+    return { start, counts, stats, lexOpt, score: optScore };
   };
 
   const candidates = starts.map(solveStart).filter(Boolean);
   if (candidates.length === 0) throw new Error('no build satisfies these constraints');
 
-  // Rank across starts by a composite key (mirrors Python's (lex_key, -wstat)):
-  // the maximized stat's value (higher better — selects the global-max start),
-  // then the eff-weighted total.
+  // Rank across starts deterministically (mirrors Python's quality key): the
+  // maximized stat's value (higher better — selects the global-max start), then the
+  // eff-weighted score, then the SAME combat-first tie-break order. The final key
+  // makes the chosen start independent of which engine solves it, just like the
+  // per-start tie-break makes the stat-vector independent of the engine.
+  const better = (c, b) => {
+    if (maximize && c.lexOpt !== b.lexOpt) return c.lexOpt > b.lexOpt;
+    if (c.score !== b.score) return c.score > b.score;
+    for (const k of TIEBREAK_ORDER) if (c.stats[k] !== b.stats[k]) return c.stats[k] > b.stats[k];
+    return false;
+  };
   let best = null;
-  for (const c of candidates) {
-    const total = STATS.reduce((a, k) => a + c.stats[k], 0);
-    const score = STATS.reduce((a, k) => a + effW[k] * c.stats[k], 0);
-    let better;
-    if (!best) better = true;
-    else if (maximize && c.lexOpt !== best.lexOpt) better = c.lexOpt > best.lexOpt;
-    else better = score > best.score;
-    if (better) best = { ...c, total, score };
-  }
+  for (const c of candidates) if (!best || better(c, best)) best = c;
+  best = { ...best, total: STATS.reduce((a, k) => a + best.stats[k], 0) };
   delete best.score;
   delete best.lexOpt;
   return best;

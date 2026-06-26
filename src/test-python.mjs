@@ -179,6 +179,15 @@ function compare(label, opts) {
       }
     } catch { /* infeasible already handled above */ }
   }
+  // 4. STAT-VECTOR EQUALITY — the core guarantee: both solvers apply the same integer
+  //    objective (OBJ_SCALE) and the same deterministic combat-first tie-break, so the
+  //    optimal build's six stats must be IDENTICAL (the leveling path may still differ).
+  //    This is the regression guard for "no discrepancy in stat values".
+  const statMismatch = STATS.filter((k) => py.stats[k] !== web.stats[k]);
+  if (statMismatch.length) {
+    ok = false;
+    detail += ` [STAT MISMATCH ${statMismatch.map((k) => `${k}:py${py.stats[k]}≠web${web.stats[k]}`).join(',')}]`;
+  }
   console.log(`${ok ? 'ok  ' : 'FAIL'} - ${label}: ${detail}`);
   if (!ok) failures++;
 }

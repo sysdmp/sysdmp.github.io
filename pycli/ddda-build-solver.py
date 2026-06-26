@@ -231,6 +231,22 @@ BALANCE_WEIGHTS = {
 BIAS_BOOST_BASE = 10.0
 BIAS_BOOST_FALLOFF = 0.5
 
+# Integer scale for the objective. The balanced weights (0.1 / 1.0) and the bias
+# adjustment (+/- BIAS_BOOST_BASE * FALLOFF**i / MAX_GAIN[k], i in 0..4) are
+# fractional; multiplying by 960 clears every denominator exactly (0.5^4 = 1/16,
+# MAX_GAIN in {40,30,6,4,5,5}, balance /10 -- 960 is minimal). Integer objective
+# coefficients make CBC (here) and HiGHS (the web app) agree on the optimum to the
+# unit, so the only cross-engine differences are genuine ties, which TIEBREAK_ORDER
+# then resolves identically. KEEP IN SYNC with src/data.js (OBJ_SCALE).
+OBJ_SCALE = 960
+
+# Canonical tie-break order (combat-first): when several builds tie at the optimal
+# objective, both solvers lexicographically maximize these stats in turn -- pinning
+# each -- to collapse the degenerate optima to ONE stat-vector. Purely a chooser
+# among equal-score builds; never changes the score or which constraints are met.
+# KEEP IN SYNC with src/data.js (TIEBREAK_ORDER).
+TIEBREAK_ORDER = ['attack', 'defense', 'mattack', 'mdefense', 'hp', 'st']
+
 def bias_ranks(bias_tiers):
     """Map each biased stat to (sign, group_index) from a list of (sign, [stats]).
 
@@ -550,9 +566,11 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
     # rather than raw points. The two groups are indexed independently. The equal-share
     # floor (phase 1) guarantees positively-biased stats grow (weighted sum is
     # winner-take-all). (start-independent.)
-    eff_weights = dict(weights)
+    # Scaled to INTEGER by OBJ_SCALE so CBC and the web's HiGHS compute identical
+    # objective values (matches effWeights in src/solver.js).
+    eff_weights = {k: round(OBJ_SCALE * weights[k]) for k in STATS}
     for stat, (sign, idx) in bias_ranks(bias_tiers).items():
-        eff_weights[stat] += sign * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[stat]
+        eff_weights[stat] += round(sign * OBJ_SCALE * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[stat])
 
     # The start vocation only shifts the constant base stats, so we build one ILP
     # family per allowed basic start. structural_model() emits the part shared by both
@@ -680,18 +698,37 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
             for stat, share in bias_shares:
                 prob += exprs[stat] >= int(share * MAX_GAIN[stat] * t_opt)   # bake floor
 
-        # Balanced total-stat objective (minimized as a negative). --maximize sits
-        # above it via the pinned lex optima; the start is chosen by the resulting
-        # objective across all starts, not by a fixed order.
-        prob.setObjective(-(10**3) * pulp.lpSum(eff_weights[k] * exprs[k] for k in STATS))
+        # Balanced total-stat objective (integer eff_weights). --maximize sits above
+        # it via the pinned lex optima. Fixes the optimal SCORE (the stat-vector may
+        # still be a degenerate tie).
+        total_stats = pulp.lpSum(eff_weights[k] * exprs[k] for k in STATS)
+        prob.setObjective(-total_stats)
         prob.solve(cbc)
         if not solved_ok(prob):
             continue
         c10, c100, c200 = read_counts(x10, x100, x200)
         s = stats_of(start, c10, c100, c200, base_st=base_st)
+        opt_score = sum(eff_weights[k] * s[k] for k in STATS)
+
+        # Deterministic tie-break: hold the optimal score as a floor, then maximize each
+        # TIEBREAK_ORDER stat in turn, locking the achieved value. Collapses the
+        # degenerate optima to one canonical stat-vector that any exact MILP engine
+        # reaches -- so CBC here and HiGHS in the web app return the same stats. Mirrors
+        # step 4 of solveStart in src/solver.js.
+        prob += total_stats >= opt_score   # score floor: never trade score for a favored stat
+        for stat in TIEBREAK_ORDER:
+            prob.setObjective(-exprs[stat])
+            prob.solve(cbc)
+            if not solved_ok(prob):
+                break
+            prob += exprs[stat] >= round(exprs[stat].value())   # lock the achieved value
+        c10, c100, c200 = read_counts(x10, x100, x200)
+        s = stats_of(start, c10, c100, c200, base_st=base_st)
         # Quality key (smaller = better): --maximize optima first (higher value sorts
-        # first), then the bias-weighted total. The stable min keeps BASIC order on ties.
-        quality = (tuple(-opt for opt in lex_opts), -sum(eff_weights[k] * s[k] for k in STATS))
+        # first), then the bias-weighted score, then the same combat-first tie-break so
+        # the winning START is deterministic across engines too.
+        quality = (tuple(-opt for opt in lex_opts), -opt_score,
+                   tuple(-s[k] for k in TIEBREAK_ORDER))
         if best is None or quality < best[0]:
             best = (quality, s)
 

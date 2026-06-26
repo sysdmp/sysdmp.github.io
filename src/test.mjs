@@ -112,11 +112,16 @@ const gA = tiered.stats.attack - baseB.stats.attack;
 const gM = tiered.stats.mattack - baseB.stats.mattack;
 check('bias tier priority: higher tier gains at least as much', gA >= gM && gA > 0,
       `attack +${gA} vs mattack +${gM}`);
-// Equal values share a tier (equal share): both grow vs unbiased.
+// Equal values share a tier (equal share): the floor pulls the two favored stats
+// together. The unbiased build already maxes attack (the combat-first tie-break), so
+// "both grow vs unbiased" no longer holds — the right invariant is that the lagging
+// favored stat (mattack) rises and the two end up closer than unbiased.
 const equalT = solveMaxTotal(highs, { bias: { attack: 4, mattack: 4 } });
-check('bias equal tier: both favored stats grow',
-      equalT.stats.attack > baseB.stats.attack && equalT.stats.mattack > baseB.stats.mattack,
-      `attack ${equalT.stats.attack}, mattack ${equalT.stats.mattack}`);
+const gapBase = Math.abs(baseB.stats.attack - baseB.stats.mattack);
+const gapEq = Math.abs(equalT.stats.attack - equalT.stats.mattack);
+check('bias equal tier: equal-share pulls the favored stats together',
+      equalT.stats.mattack > baseB.stats.mattack && gapEq < gapBase,
+      `attack ${equalT.stats.attack}, mattack ${equalT.stats.mattack} (gap ${gapBase}->${gapEq})`);
 // The strong floor is much stronger than the old soft nudge: a +5 attack bias should
 // drive attack well above the unbiased build (sanity that the floor actually bites).
 check('strong bias floor noticeably raises the favored stat',
@@ -253,14 +258,19 @@ check('forced start + pawn: start has >=1 in 1->10',
       `to10 fighter ${startPawn.counts.to10.fighter ?? 0}`);
 
 // 15. enumerateSameStats — alternatives all hit the exact same stats, distinct allocations.
-// Most balanced-optimal builds have a unique allocation, but many constrained targets
-// are reachable many ways; defense=496 is one with 50+ equivalent allocations.
-const seedOpts = { bounds: { defense: { min: 496, max: 496 } } };
-const seed = solveMaxTotal(highs, seedOpts);
-const { builds: alts, capped } = enumerateSameStats(highs, seedOpts, seed.stats, 50);
+// This tests the same-stats ENUMERATION mechanism, which is independent of what
+// solveMaxTotal selects. Note: solveMaxTotal now applies a deterministic tie-break that
+// lands on the combat-maximal optimum, which is typically uniquely reachable — so we seed
+// the enumerator from a known sub-maximal-but-reachable vector that has many paths. We get
+// it by pinning defense=496 (the old multi-path optimum) and lowering attack 8 points, a
+// vector reachable 50+ ways.
+const opt496 = solveMaxTotal(highs, { bounds: { defense: { min: 496, max: 496 } } }).stats;
+const multiTarget = { ...opt496, attack: opt496.attack - 8 };
+const multiOpts = { bounds: Object.fromEntries(STATS.map((k) => [k, { min: multiTarget[k], max: multiTarget[k] }])) };
+const { builds: alts, capped } = enumerateSameStats(highs, multiOpts, multiTarget, 50);
 check('enumerateSameStats finds multiple same-stat allocations', alts.length > 1, `${alts.length} builds`);
 check('every alternative has the exact same stats',
-      alts.every((b) => STATS.every((k) => b.stats[k] === seed.stats[k])),
+      alts.every((b) => STATS.every((k) => b.stats[k] === multiTarget[k])),
       `${alts.length} builds checked`);
 const allocKey = (b) => b.start + '|' + ['to10', 'to100', 'to200']
   .map((t) => Object.entries(b.counts[t] || {}).sort().map(([v, n]) => `${v}:${n}`).join(',')).join('|');
@@ -268,7 +278,8 @@ check('alternatives are all distinct allocations',
       new Set(alts.map(allocKey)).size === alts.length, `${alts.length} unique`);
 check('enumerateSameStats honors the cap (50 -> capped here)',
       alts.length <= 50 && capped, `${alts.length}, capped=${capped}`);
-// A uniquely-reachable build returns just itself.
+// The balanced optimum is uniquely reachable (the tie-break picks the combat-maximal
+// vector), so its same-stats enumeration returns just itself.
 const uniq = solveMaxTotal(highs, {});
 const uniqAlts = enumerateSameStats(highs, {}, uniq.stats, 50).builds;
 check('uniquely-reachable build returns exactly one', uniqAlts.length === 1, `${uniqAlts.length}`);

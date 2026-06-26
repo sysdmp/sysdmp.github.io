@@ -119,10 +119,30 @@ export function growth(voc, tier, stat) {
 // Balanced-objective weights: hp and st are discounted to 0.1 (vs 1.0 for the
 // four combat stats). hp/st have large raw values and grow cheaply, so without
 // this the max-total objective would pile level-ups into them at the expense of
-// the combat stats. Mirrors the Python prototype's BALANCE_WEIGHTS.
+// the combat stats. Mirrors the Python prototype's BALANCE_WEIGHTS. These are the
+// human-readable ratios; the solver scales them (and the bias adjustment) to
+// integers via OBJ_SCALE so two different MILP engines compute bit-identical
+// objective values (see effWeights in solver.js).
 export const BALANCE_WEIGHTS = {
   hp: 0.1, st: 0.1, attack: 1.0, defense: 1.0, mattack: 1.0, mdefense: 1.0,
 };
+
+// Integer scale for the objective. The balanced weights (0.1 / 1.0) and the bias
+// adjustment (±BIAS_BOOST_BASE·FALLOFF^idx / MAX_GAIN[k], idx 0..4) are fractional;
+// multiplying by 960 clears every denominator exactly (0.5^4 = 1/16, MAX_GAIN ∈
+// {40,30,6,4,5,5}, balance /10 — 960 is the minimal such integer). Integer LP
+// coefficients make HiGHS (web) and CBC (Python) agree on the optimum to the unit,
+// so the only remaining cross-engine differences are genuine ties, which a
+// deterministic tie-break (TIEBREAK_ORDER) then resolves identically. KEEP IN SYNC
+// with pycli/ddda-build-solver.py (OBJ_SCALE).
+export const OBJ_SCALE = 960;
+
+// Canonical tie-break order (combat-first): when several builds tie at the optimal
+// objective, both solvers lexicographically maximize these stats in turn — pinning
+// each — to collapse the degenerate optima to ONE stat-vector. Purely a chooser
+// among equal-score builds; never changes the score or which constraints are met.
+// KEEP IN SYNC with pycli/ddda-build-solver.py (TIEBREAK_ORDER).
+export const TIEBREAK_ORDER = ['attack', 'defense', 'mattack', 'mdefense', 'hp', 'st'];
 
 // Largest per-level gain for each stat across all vocations/tiers. Used to
 // normalize bias weights: stats grow at very different rates (hp ~40/lvl vs
