@@ -83,13 +83,18 @@ export function biasRanks(tiers) {
   return ranks;
 }
 
-// Per-stat objective weight, scaled to an INTEGER by OBJ_SCALE: the balance weight
-// plus the bias adjustment (sign * BASE * FALLOFF**idx / MAX_GAIN[k]); both signs
-// adjust the weight. OBJ_SCALE (960) is chosen so every term here is an exact
-// integer, so HiGHS and CBC compute identical objective values (see data.js).
-export function effWeights(ranks) {
+// The balanced objective's per-stat weights, scaled to integers by OBJ_SCALE (so
+// HiGHS and CBC compute identical objective values — see data.js). No bias.
+function baseWeights() {
   const w = {};
   for (const k of STATS) w[k] = Math.round(OBJ_SCALE * BALANCE_WEIGHTS[k]);
+  return w;
+}
+
+// Per-stat objective weight (integer, OBJ_SCALE'd): the balance weight plus the bias
+// adjustment (sign * BASE * FALLOFF**idx / MAX_GAIN[k]); both signs adjust the weight.
+export function effWeights(ranks) {
+  const w = baseWeights();
   for (const [k, { sign, idx }] of Object.entries(ranks)) {
     w[k] += Math.round(sign * OBJ_SCALE * BIAS_BOOST_BASE * (BIAS_BOOST_FALLOFF ** idx) / MAX_GAIN[k]);
   }
@@ -144,7 +149,7 @@ function buildLP({ start, pool, bounds, baseSt, pawn, match,
                    objStat = null, pins = [], scoreFloor = null, noPre10Switch = false,
                    reqVocs = {}, effW = null, shares = [], floors = null,
                    nogoods = [] }) {
-  if (effW == null) { effW = {}; for (const k of STATS) effW[k] = Math.round(OBJ_SCALE * BALANCE_WEIGHTS[k]); }
+  if (effW == null) effW = baseWeights();
   const base = { ...basic[start].init };
   if (baseSt != null) base.st = baseSt;
 

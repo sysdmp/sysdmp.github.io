@@ -57,7 +57,7 @@ export const basic = {
   },
 };
 
-export const adv = {
+const adv = {
   warrior:  { to100: { hp: 40, st: 10, attack: 5, defense: 3, mattack: 2, mdefense: 1 },
               to200: { hp: 5, st: 15, attack: 2, defense: 2, mattack: 0, mdefense: 0 } },
   ranger:   { to100: { hp: 21, st: 30, attack: 4, defense: 2, mattack: 3, mdefense: 2 },
@@ -81,7 +81,7 @@ export const PAWN_EXCLUDED = ['mknight', 'assassin', 'marcher'];
 
 // All vocations -> their growth data. Basic vocations carry an `init`; advanced
 // ones only appear in to100/to200, so a missing tier means zero gains there.
-export const VOCS = { ...basic, ...adv };
+const VOCS = { ...basic, ...adv };
 
 // The three leveling ranges, in order, and their fixed block sizes (set by the game).
 export const TIERS = ['to10', 'to100', 'to200'];

@@ -7,7 +7,7 @@ import { loadHighs } from './highs-loader.js';
 import { solveMaxTotal, sameStatsBuilds } from './solver.js';
 import {
   BASIC, ALL, STATS, WEIGHT_CLASSES, WEIGHT_BASE_ST, DEFAULT_WEIGHT,
-  WEIGHT_RANGE, WEIGHT_STAREGEN, WEIGHT_ENCUMBRANCE, TIERS,
+  WEIGHT_RANGE, WEIGHT_STAREGEN, WEIGHT_ENCUMBRANCE, TIERS, TIER_SIZE,
   COMBAT, VITALS, MATCH_TILDE_TOL, MATCH_PARTNERS, STAT_MAX, owocUrl, QUOTES, statsOf,
 } from './data.js';
 
@@ -117,9 +117,9 @@ const tierHeader = (withTo10) => {
 leftCol.appendChild(tierHeader(true));   // basics: all three ranges
 rightCol.appendChild(tierHeader(false)); // advanced/hybrid: no 1→10
 
-// Per-tier sizes/labels for the require fields (1→10 / 10→100 / 100→200). Declared
-// before updateRequireUI/clampReqField/encode use them (those run during init).
-const TIER_SIZE = { to10: 9, to100: 90, to200: 100 };
+// Per-tier labels for the require fields (1→10 / 10→100 / 100→200). Declared before
+// updateRequireUI/clampReqField/encode use them (those run during init). TIER_SIZE is
+// imported from data.js.
 const TIER_LABEL = { to10: '1→10', to100: '10→100', to200: '100→200' };
 // Short tier codes used in the share URL's `req` param ("voc@10:n", etc.).
 const TIER_SHORT = { to10: '10', to100: '100', to200: '200' };
