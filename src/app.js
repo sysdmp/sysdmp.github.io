@@ -921,7 +921,7 @@ function allocKey(b) {
 // the alternatives counter. Stats/weight-info are rendered once at solve time (they're
 // identical across alternatives), so this is the per-cycle update.
 function renderBuild(b) {
-  const { weight, kind, goal, bounds } = altCtx;
+  const { weight, kind, goal } = altCtx;
   $('result-head').innerHTML =
     `Best ${kind} build — start as ${colorVoc(b.start)} <span class="wtag">(${weight})</span>${goal}`;
   renderPlan(b.start, b.counts);

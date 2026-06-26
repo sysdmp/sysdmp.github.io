@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STATS, BALANCE_WEIGHTS } from './data.js';
+import { STATS } from './data.js';
 import { solveMaxTotal } from './solver.js';
 
 const require = createRequire(import.meta.url);
@@ -24,8 +24,6 @@ const PY = join(PYDIR, 'ddda-build-solver.py');
 const highsLoader = require('highs');
 const fs = require('node:fs');
 const highs = await highsLoader({ wasmBinary: fs.readFileSync(require.resolve('highs/runtime')) });
-
-const wScore = (s) => STATS.reduce((a, k) => a + BALANCE_WEIGHTS[k] * s[k], 0);
 
 // Python: --bias with the given comma string (e.g. "attack" or "attack=mattack").
 function pyBias(biasStr, extra = []) {
