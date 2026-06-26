@@ -220,7 +220,7 @@ for (const v of ALL) {
 // Tuck the option checkboxes and the class selectors into the left column,
 // below the basic vocations (so they sit to the left of the hybrid vocations in
 // the right column). They're authored in the template after #vocs; move the DOM
-// nodes, keeping their ids/listeners intact. Starting class sits above weight class.
+// nodes, keeping their ids/listeners intact. Starting vocation sits above weight class.
 leftCol.appendChild($('start-class').closest('.wsel'));
 leftCol.appendChild($('weight').closest('.wsel'));
 for (const id of ['pawn', 'no-pre10']) leftCol.appendChild($(id).closest('.pawn'));
@@ -235,7 +235,7 @@ const TOGGLES = [
 ];
 const pawnEl = $('pawn'); // pawn also drives the hybrid-vocation greying below
 
-// --- starting-class selector: force one basic vocation as the start, or "Auto" ---
+// --- starting-vocation selector: force one basic vocation as the start, or "Auto" ---
 // The solver already picks the best start among allowed basics; choosing one here
 // pins it (passed as startPool). "Auto" ("") = let the solver choose (default).
 const startClassEl = $('start-class');
@@ -250,7 +250,7 @@ const startClassEl = $('start-class');
   }
 }
 $('start-help').title =
-  'Which basic vocation the build starts as (the level-1 class). "Auto" lets the ' +
+  'Which basic vocation the build starts as (the level-1 vocation). "Auto" lets the ' +
   'solver pick the best-scoring start among the allowed basics. Choosing one pins ' +
   'it — and also allows it (the other two basics can still be used later, just not ' +
   'as the start).';
@@ -600,7 +600,7 @@ function collectBounds() {
 // Params (all optional, omitted when at their default):
 //   v   = CSV of allowed vocations (omitted when all are on)
 //   w   = weight class (omitted when M)
-//   sc  = forced starting class (a basic vocation; omitted when Auto)
+//   sc  = forced starting vocation (a basic vocation; omitted when Auto)
 //   p   = 1 when pawn mode is on
 //   nx  = 1 when "no pre-10 vocation switch" is on
 //   <stat>_min   = min bound
@@ -666,7 +666,7 @@ function applySelections(params) {
     }
   }
   if (params.has('w') && WEIGHT_BASE_ST[params.get('w')] != null) weightEl.value = params.get('w');
-  // Forced starting class (a basic vocation, or Auto). refreshAllCues() below runs
+  // Forced starting vocation (a basic vocation, or Auto). refreshAllCues() below runs
   // updateStartClass(), which re-applies force-implies-allow and the pawn note.
   const sc = params.get('sc');
   startClassEl.value = BASIC.includes(sc) ? sc : '';
@@ -962,7 +962,7 @@ async function runSolve(pinnedBuild = null) {
   if (!highs) return;
   const allowed = selectedVocs();
   const allowedBasics = allowed.filter((v) => BASIC.includes(v));
-  // A forced starting class pins the start to that one basic (it's auto-allowed, so
+  // A forced starting vocation pins the start to that one basic (it's auto-allowed, so
   // it's normally in `allowed`; fall back to Auto if it somehow isn't). "" = Auto.
   const forced = startClassEl.value;
   const startPool = forced && allowed.includes(forced) ? [forced] : allowedBasics;
