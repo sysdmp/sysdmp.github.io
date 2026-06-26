@@ -9,9 +9,10 @@
     "test": "node src/test.mjs && make && node src/test-dom.mjs && npm run test:lint",
     "test:dom": "node src/test-dom.mjs",
     "test:py": "node src/test-python.mjs",
-    "test:lint": "npm run test:lint:py && npm run test:lint:js",
+    "test:lint": "npm run test:lint:py && npm run test:lint:js && npm run test:lint:html",
     "test:lint:py": "uvx ruff check pycli",
     "test:lint:js": "npx --yes oxlint@1 --deny-warnings src",
+    "test:lint:html": "npx --yes html-validate@11 src/index.html",
     "build": "make"
   },
   "dependencies": {
