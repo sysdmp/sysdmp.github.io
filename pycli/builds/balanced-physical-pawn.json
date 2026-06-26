@@ -79,12 +79,13 @@
     "to200": {}
   },
   "bias": [],
+  "bias_map": {},
   "bias_tiers": [],
   "maximize": [],
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.062,
+  "solve_time_sec": 0.074,
   "builds": [
     {
       "penalty": 0.0,

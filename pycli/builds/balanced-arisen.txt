@@ -4,10 +4,10 @@ DDDA BUILD SOLVER - LEVEL 200
 | stat     |  min |  max | exact | round | bias | match    |
 +----------+------+------+-------+-------+------+----------+
 | hp       | 3777 | 3777 |  yes  |   -   |  -   | -        |
-| st       | 4000 | 4000 |  yes  |   -   |  +2  | -        |
-| attack   |    - |    - |   -   |   -   |  +1  | =mattack |
+| st       | 4000 | 4000 |  yes  |   -   |  +4  | -        |
+| attack   |    - |    - |   -   |   -   |  +5  | =mattack |
 | defense  |  300 |  300 |  yes  |   -   |  -   | -        |
-| mattack  |    - |    - |   -   |   -   |  +1  | =attack  |
+| mattack  |    - |    - |   -   |   -   |  +5  | =attack  |
 | mdefense |  300 |  300 |  yes  |   -   |  -   | -        |
 +----------+------+------+-------+-------+------+----------+
 
@@ -18,28 +18,28 @@ found 1 build(s):
 ====================================================
  build 1   [OK] all requirements met
 ====================================================
-                                                     leveling plan                                                     
-+----------+--------+---------------------------------------------------------------------------------------------------+
-| range    | levels | vocations                                                                                         |
-+----------+--------+---------------------------------------------------------------------------------------------------+
-| start    |      - | fighter                                                                                           |
-| 1->10    |      9 | fighter x1  mage x8                                                                               |
-| 10->100  |     90 | fighter x1  strider x2  warrior x7  ranger x12  sorcerer x1  mknight x1  assassin x65  marcher x1 |
-| 100->200 |    100 | mage x1  sorcerer x98  mknight x1                                                                 |
-+----------+--------+---------------------------------------------------------------------------------------------------+
+                                         leveling plan                                         
++----------+--------+---------------------------------------------------------------------------+
+| range    | levels | vocations                                                                 |
++----------+--------+---------------------------------------------------------------------------+
+| start    |      - | fighter                                                                   |
+| 1->10    |      9 | strider x6  mage x3                                                       |
+| 10->100  |     90 | fighter x6  strider x1  warrior x4  ranger x10  sorcerer x4  assassin x65 |
+| 100->200 |    100 | mage x1  sorcerer x98  marcher x1                                         |
++----------+--------+---------------------------------------------------------------------------+
  ⚠  changing vocation before level 10:
     to do it, restart the game in Hard Mode — this resets save
     progress, but the character keeps its levels and items.
- vocation switches: 12 (13 leveling blocks across the 3 ranges)
+ vocation switches: 10 (11 leveling blocks across the 3 ranges)
                       final stats                       
 +--------------+-------+---------------------------------+
 | stat         | value | details                         |
 +--------------+-------+---------------------------------+
 | hp           |  3777 | >=3777 <=3777                   |
-| st           |  4000 | >=4000 <=4000 bias +2           |
-| attack       |   590 | bias +1                         |
+| st           |  4000 | >=4000 <=4000 bias +4           |
+| attack       |   590 | bias +5                         |
 | defense      |   300 | >=300 <=300                     |
-| mattack      |   590 | bias +1                         |
+| mattack      |   590 | bias +5                         |
 | mdefense     |   300 | >=300 <=300                     |
 | ---          |   --- | ---                             |
 | combat       |  1780 | attack+mattack+defense+mdefense |
@@ -51,7 +51,7 @@ found 1 build(s):
 | st regen     |  48/s | 115% of M                       |
 | encumbrance  |  50kg | base maximum encumbrance        |
 +--------------+-------+---------------------------------+
- owoc planner: https://owoc.github.io/#af010200070c01014101000001000062010000010008
+ owoc planner: https://owoc.github.io/#af060100040a04004100000001000062000001000603
   (planner assumes weight M; this S build's st will read differently there — st here is authoritative)
 
-solve time: 0.476s
+solve time: 0.501s

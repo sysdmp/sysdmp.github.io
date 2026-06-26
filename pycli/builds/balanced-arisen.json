@@ -2,7 +2,7 @@
   "command": {
     "argv": [
       "--bias",
-      "attack=mattack,st",
+      "attack=5,mattack=5,st=4",
       "--match",
       "attack=mattack",
       "--defense",
@@ -17,7 +17,7 @@
       "s",
       "--json"
     ],
-    "line": "ddda-build-solver.py --bias attack=mattack,st --match attack=mattack --defense 300 --mdefense 300 --st 4000 --hp 3777 --weight s --json"
+    "line": "ddda-build-solver.py --bias attack=5,mattack=5,st=4 --match attack=mattack --defense 300 --mdefense 300 --st 4000 --hp 3777 --weight s --json"
   },
   "weight": {
     "class": "S",
@@ -86,6 +86,11 @@
     "mattack",
     "st"
   ],
+  "bias_map": {
+    "attack": 5,
+    "mattack": 5,
+    "st": 4
+  },
   "bias_tiers": [
     {
       "sign": 1,
@@ -105,7 +110,7 @@
   "solver": "ilp",
   "requested": 1,
   "found": 1,
-  "solve_time_sec": 0.495,
+  "solve_time_sec": 0.508,
   "builds": [
     {
       "penalty": 0.0,
@@ -113,26 +118,24 @@
       "start": "fighter",
       "levels": {
         "to10": {
-          "fighter": 1,
-          "mage": 8
+          "strider": 6,
+          "mage": 3
         },
         "to100": {
-          "fighter": 1,
-          "strider": 2,
-          "warrior": 7,
-          "ranger": 12,
-          "sorcerer": 1,
-          "mknight": 1,
-          "assassin": 65,
-          "marcher": 1
+          "fighter": 6,
+          "strider": 1,
+          "warrior": 4,
+          "ranger": 10,
+          "sorcerer": 4,
+          "assassin": 65
         },
         "to200": {
           "mage": 1,
           "sorcerer": 98,
-          "mknight": 1
+          "marcher": 1
         }
       },
-      "vocation_switches": 12,
+      "vocation_switches": 10,
       "final_stats": {
         "hp": 3777,
         "st": 4000,
@@ -146,7 +149,7 @@
         "vitals": 7777,
         "all": 9557
       },
-      "owoc_url": "https://owoc.github.io/#af010200070c01014101000001000062010000010008"
+      "owoc_url": "https://owoc.github.io/#af060100040a04004100000001000062000001000603"
     }
   ]
 }

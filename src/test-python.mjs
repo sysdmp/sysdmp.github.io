@@ -77,12 +77,11 @@ function pyArgs(opts) {
     if (segs.length) args.push('--require', segs.join(','));
   }
   if (opts.startPool?.length === 1) args.push('--start-as', opts.startPool[0]);
-  // Bias: render the web {stat:int} map as Python's --bias tier string via the shared
-  // tier mapping — positive tiers (high→low) as `=`-joined groups, then negative tiers
-  // prefixed with `-`. Use the --bias=... form so a leading `-` survives argparse.
+  // Bias: Python's --bias now takes the SAME per-stat {stat:int} map the web uses
+  // (stat=N, N in -5..5), so the web bias object maps directly to `stat=N` segments.
+  // Use the --bias=... form so a leading `-` (negative N) survives argparse.
   if (opts.bias && Object.keys(opts.bias).length) {
-    const segs = biasTiersFromMap(opts.bias).map(({ sign, stats }) =>
-      (sign < 0 ? '-' : '') + stats.join('='));
+    const segs = Object.entries(opts.bias).map(([k, n]) => `${k}=${n}`);
     args.push(`--bias=${segs.join(',')}`);
   }
   // Both solvers always discount hp/st in the balanced objective (weight 0.1),

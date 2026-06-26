@@ -822,15 +822,14 @@ def parse_args():
                               "(ranges hold 9 / 90 / 100 levels; per-range minimums\n"
                               "must fit; 1->10 is basics only). a required vocation is\n"
                               "also allowed. vocations: " + ', '.join(ALL))
-    g_goals.add_argument('--bias', type=str, default='', metavar='STATS',
-                         help="comma-separated priority tiers of stats to softly\n"
-                              "favor in the objective; the first tier gets the\n"
-                              "largest boost, each later tier less. Group stats into\n"
-                              "one tier (equal weight) with '=': attack=mattack.\n"
-                              "Prefix a tier with '-' to REDUCE its weight instead\n"
-                              "(use the = form so argparse keeps it: --bias=-mattack\n"
-                              "or put it after a comma: attack,-mattack). +/- tiers\n"
-                              "are independent; their interleaving doesn't matter.\n"
+    g_goals.add_argument('--bias', type=str, default='', metavar='SPEC',
+                         help="comma-separated 'stat=N' weights softly favoring (N>0)\n"
+                              "or reducing (N<0) a stat in the objective, N in -5..5\n"
+                              "(matches the web UI's per-stat slider). Larger |N| =\n"
+                              "stronger; stats sharing |N| and sign are weighted\n"
+                              "equally. e.g. --bias attack=5,mattack=3,mdefense=3 favors\n"
+                              "attack most, then mattack and mdefense together. A bare\n"
+                              "stat means =5; groups all/combat expand (combat=4).\n"
                               "stats: " + ','.join(STATS) + " (or 'all' / 'combat')")
     g_goals.add_argument('--maximize', type=str, default='', metavar='STATS',
                          help="comma-separated stats to hard-maximize, highest\n"
@@ -1008,7 +1007,7 @@ def _fmt_levels(counts):
     items = [(v, counts[v]) for v in VOC_ORDER if counts.get(v, 0) > 0]
     return '  '.join(f"{_color_voc(v)} {c(GLYPH['mul']+str(n),'bold')}" for v, n in items) or c(GLYPH['dash'], 'dim')
 
-def print_build(idx, build, cons, rounding=None, weight=None, bias_tiers=()):
+def print_build(idx, build, cons, rounding=None, weight=None, bias_tiers=(), bias_map=None):
     """Print one build as a colored header plus leveling-plan and final-stats tables.
 
     Args:
@@ -1020,14 +1019,20 @@ def print_build(idx, build, cons, rounding=None, weight=None, bias_tiers=()):
             details column.
         weight: optional weight-class name; when given, its class / range /
             base stamina / regen are appended as rows to the final-stats table.
-        bias_tiers: list of (sign, [stats]) bias tiers; each stat's tier is noted
-            in the details column (e.g. "bias +1", "bias -2").
+        bias_tiers: list of (sign, [stats]) bias tiers (drives the solver weights).
+        bias_map: {stat: signed int} magnitude per stat (the -5..+5 the user gave);
+            shown in the details column as "bias +5" / "bias -3". Falls back to the
+            1-based tier number when absent (e.g. older JSON without bias_map).
     """
     p,start,c10,c100,c200,s = build
     rounding = dict(rounding or {})
-    # map stat -> signed bias label (+n favor / -n reduce), per its 1-based tier
-    bias_note = {st: f"bias {'+' if sign > 0 else '-'}{idx + 1}"
-                 for st, (sign, idx) in bias_ranks(bias_tiers).items()}
+    # map stat -> signed bias label. Prefer the explicit magnitude (matches the web
+    # UI's -5..+5); fall back to the signed 1-based tier when only tiers are known.
+    if bias_map:
+        bias_note = {st: f"bias {'+' if m > 0 else '-'}{abs(m)}" for st, m in bias_map.items() if m}
+    else:
+        bias_note = {st: f"bias {'+' if sign > 0 else '-'}{idx + 1}"
+                     for st, (sign, idx) in bias_ranks(bias_tiers).items()}
 
     head = c(f"build {idx}", 'bold', 'white')
     status = c(f"{GLYPH['ok']} all requirements met", 'bold', 'green') if p == 0 \
@@ -1114,7 +1119,7 @@ def print_build(idx, build, cons, rounding=None, weight=None, bias_tiers=()):
         print(c(f"  (planner assumes weight M; this {weight} build's st will read "
                 f"differently there — st here is authoritative)", 'dim', 'yellow'))
 
-def print_constraints(cons, exact, rounding, match, bias_tiers, avoid):
+def print_constraints(cons, exact, rounding, match, bias_tiers, avoid, bias_map=None):
     """Print the banner, the 'avoiding' line, and the target-constraints table.
 
     Args mirror the parsed inputs from main(): cons {stat:(min,max)}, the exact
@@ -1171,8 +1176,12 @@ def print_constraints(cons, exact, rounding, match, bias_tiers, avoid):
             round_label = c(f"{GLYPH['mul']}{rounding[k]}", 'green')
         else:
             round_label = c(GLYPH['dash'], 'dim')
-        # signed bias tier: +n favors / -n reduces (n = 1-based tier within sign)
-        if k in ranks:
+        # signed bias: prefer the explicit -5..+5 magnitude (matches the web UI);
+        # fall back to the signed 1-based tier when only tiers are known.
+        if bias_map and bias_map.get(k):
+            m = bias_map[k]
+            bias_label = c(f"{'+' if m > 0 else '-'}{abs(m)}", 'green' if m > 0 else 'red')
+        elif k in ranks:
             sign, idx = ranks[k]
             bias_label = c(f"{'+' if sign > 0 else '-'}{idx + 1}", 'green' if sign > 0 else 'red')
         else:
@@ -1287,10 +1296,13 @@ def render_imported(doc):
         bias_tiers = [(t.get("sign", 1), list(t.get("stats", []))) for t in doc["bias_tiers"]]
     else:
         bias_tiers = [(+1, [s]) for s in (doc.get("bias") or [])]
+    # bias_map (the explicit -5..+5 per stat) drives the display labels; absent in
+    # older documents, where print_* falls back to the signed tier number.
+    bias_map = doc.get("bias_map") or None
     avoid = set(doc.get("avoided_vocations") or [])
     weight = (doc.get("weight") or {}).get("class")
 
-    print_constraints(cons, exact, rounding, match, bias_tiers, avoid)
+    print_constraints(cons, exact, rounding, match, bias_tiers, avoid, bias_map=bias_map)
 
     solver = doc.get("solver")
     if solver == 'ilp':
@@ -1319,7 +1331,7 @@ def render_imported(doc):
           + (c(f" (requested {count})", 'dim') if count and count > 1 else "") + ":")
     for i, bd in enumerate(builds_json, 1):
         build = _build_from_dict(bd)
-        print_build(i, build, cons, rounding, weight=weight, bias_tiers=bias_tiers)
+        print_build(i, build, cons, rounding, weight=weight, bias_tiers=bias_tiers, bias_map=bias_map)
     if count and len(builds_json) < count:
         print(c(f"\n(only {len(builds_json)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
     _print_imported_time(doc)
@@ -1477,25 +1489,46 @@ def main():
     if bad_stats('--maximize', maximize):
         return
 
-    # --bias: comma separates priority tiers; '=' groups stats into the SAME tier
-    # (equal weight). A leading '-' on a segment makes it a NEGATIVE tier (reduces
-    # the stat's weight). Positive and negative tiers form two independent ordered
-    # groups -- their interleaving doesn't matter; within each group, earlier tiers
-    # get a stronger (de)emphasis via the falloff. e.g.
-    #   "attack=mattack,mdefense,-st" -> pos [[attack,mattack],[mdefense]], neg [[st]]
-    # Group keywords (all/combat) expand within their tier.
-    pos_tiers, neg_tiers = [], []   # each: list of tiers (lists of stats), priority order
-    seen_bias = set()
+    # --bias: comma-separated 'stat=N' assignments giving each stat a signed
+    # magnitude in -5..+5 (matches the web UI's per-stat dropdown). Positive favors,
+    # negative reduces; larger magnitude = stronger. Stats are then grouped into
+    # priority tiers by magnitude within each sign (highest magnitude = first/strongest
+    # tier; equal magnitudes share a tier), exactly like the web's biasTiersFromMap.
+    # So `--bias attack=5,mattack=3,mdefense=3` -> pos tiers [[attack],[mattack,mdefense]].
+    # A 'stat' with no '=N' defaults to +5 (the strongest favor), so the old bare-stat
+    # form still favors. Group keywords (all/combat) expand, sharing the segment's value.
+    bias_map = {}   # stat -> signed int magnitude
     for seg in (p.strip() for p in a.bias.split(',') if p.strip()):
-        negative = seg.startswith('-')
-        body = seg[1:] if negative else seg
-        tier = parse_stat_list(body.replace('=', ','))   # '=' members share the tier
-        if bad_stats('--bias', tier):
+        if '=' in seg:
+            body, _, num = seg.rpartition('=')
+            try:
+                mag = int(num)
+            except ValueError:
+                print(c(f"error: --bias expects 'stat=N' (integer); got '{seg}'.", 'red'))
+                return
+        else:
+            body, mag = seg, 5   # bare stat -> strongest positive favor
+        if not -5 <= mag <= 5:
+            print(c(f"error: --bias magnitude must be -5..5; got {mag} in '{seg}'.", 'red'))
             return
-        tier = [s for s in tier if s not in seen_bias]   # drop already-placed stats
-        if tier:
-            (neg_tiers if negative else pos_tiers).append(tier)
-            seen_bias.update(tier)
+        stats_in_seg = parse_stat_list(body)
+        if bad_stats('--bias', stats_in_seg):
+            return
+        for s in stats_in_seg:
+            bias_map[s] = mag   # later segments win on conflict
+    # Build sign-grouped, magnitude-ordered tiers from the map (mirrors the web's
+    # biasTiersFromMap): for each sign, group stats by |magnitude|, tiers in
+    # descending-magnitude order. Magnitude 0 means neutral (no tier).
+    pos_tiers, neg_tiers = [], []
+    for sign, dest in ((1, pos_tiers), (-1, neg_tiers)):
+        by_mag = {}
+        for s in STATS:
+            m = bias_map.get(s, 0)
+            if (m > 0) != (sign > 0) or m == 0:
+                continue
+            by_mag.setdefault(abs(m), []).append(s)
+        for mag in sorted(by_mag, reverse=True):
+            dest.append(by_mag[mag])
     # bias_tiers carries a sign per tier: list of (sign, [stats]); +1 favor, -1 reduce
     bias_tiers = [(+1, t) for t in pos_tiers] + [(-1, t) for t in neg_tiers]
     bias = [s for _, t in bias_tiers for s in t]   # flat list, for table/JSON
@@ -1636,12 +1669,13 @@ def main():
         "start_as": a.start_as or None,
         "require": require,
         "bias": bias,
+        "bias_map": bias_map,
         "bias_tiers": [{"sign": sign, "stats": tier} for sign, tier in bias_tiers],
         "maximize": maximize,
     }
 
     if not a.json:
-        print_constraints(cons, exact, rounding, match, bias_tiers, avoid)
+        print_constraints(cons, exact, rounding, match, bias_tiers, avoid, bias_map=bias_map)
 
     method = a.solver
     if method == 'auto':
@@ -1734,7 +1768,7 @@ def main():
 
     print(c(f"\nfound {len(builds)} build(s)", 'bold') + (c(f" (requested {count})", 'dim') if count > 1 else "") + ":")
     for i, b in enumerate(builds, 1):
-        print_build(i, b, cons, rounding, weight=a.weight, bias_tiers=bias_tiers)
+        print_build(i, b, cons, rounding, weight=a.weight, bias_tiers=bias_tiers, bias_map=bias_map)
     if len(builds) < count:
         print(c(f"\n(only {len(builds)} distinct feasible build(s) could be produced for these constraints)", 'yellow'))
     if solve_time is not None:
