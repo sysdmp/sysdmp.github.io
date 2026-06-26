@@ -11,7 +11,11 @@ build inlines everything into a single self-contained `index.html` at the repo r
 ## Features
 
 The objective maximizes a **balanced** weighted stat total (hp/st discounted to
-0.1 vs 1.0 for the combat stats), and supports these specifiers:
+0.1 vs 1.0 for the combat stats). Weights are scaled to integers internally so the
+optimum is solver-independent, and a deterministic tie-break (combat-first:
+attack → defense → mattack → mdefense → hp → st) collapses equal-score builds to one
+canonical stat-vector — so the web and Python solvers return identical stats for the
+same input (the leveling *path* may still differ). Specifiers:
 
 - **Per-stat min/max bounds** — `min === max` requests an exact value.
 - **Divisor rounding** — force a stat to a multiple of N (max dropped, min kept).
@@ -40,7 +44,9 @@ The objective maximizes a **balanced** weighted stat total (hp/st discounted to
 `enumerateSameStats(highs, opts, stats, cap)` lists builds that reach the **exact
 same** final stats via a different vocation allocation; the web UI uses it to cycle
 through equivalents (a "↻ another" button), and shared links pin the exact displayed
-allocation.
+allocation. Note the deterministic tie-break tends to land on a uniquely-reachable
+stat-vector, so the optimum often has no alternatives — the enumeration still finds
+them whenever a reachable vector does have multiple paths.
 
 It also restricts the vocation pool, shares the configuration via the URL, links
 to the [owoc.github.io](https://owoc.github.io) planner, and offers light/dark/auto
@@ -114,7 +120,7 @@ make clean      # remove the built index.html
 ## Versioning
 
 The single source of truth for the web app's version is **`package.json`'s
-`version`** (classic semver `x.y.z`, currently `0.0.1`). The build injects it
+`version`** (classic semver `x.y.z`). The build injects it
 into the bundle and the page footer ("Version x.y.z"); nothing else hardcodes a
 number. Bump it and create the matching git tag in one step:
 
@@ -156,22 +162,22 @@ npm test        # node src/test.mjs
 
 `npm run test:py` treats the Python prototype (`pycli/ddda-build-solver.py`, run
 via `uv`) as the source of truth and asserts the web solver reaches the **same
-optimal objective** on matched inputs — the balanced weighted score, or the exact
-maximized stat for `--maximize`. (Allocations may differ when builds tie at the optimum; only
-the objective value is compared. The web solver runs HiGHS with a zero MIP gap so
-both prove exact optima.) It has a **static** suite (fixed cases) and a
-**dynamic** fuzz suite (random inputs each run):
+optimum** on matched inputs. Both solvers now use an integer-scaled objective and the
+same deterministic tie-break, so the check is strict: **every one of the six final
+stats must match** (not just the objective score). The leveling *path* may still
+differ — that's allowed and is what the same-stats enumeration surfaces. It has a
+**static** suite (fixed cases) and a **dynamic** fuzz suite (random inputs each run):
 
 ```sh
 npm run test:py
 DDDA_SEED=42 DDDA_FUZZ=30 npm run test:py   # replay a seed / set fuzz count
 ```
 
-As of v1.0.0 the web and Python **bias** models are identical (both the equal-share
-floor then maximize), so bias is now cross-checked too — on the bias-weighted
-optimum. Everything is cross-validated: bounds, divisor, hp↔st `~` matches (tol 100
-on both sides), no-early-switcheroo, per-vocation **require** minimums, a forced
-**start-as** class, and **bias** — the full web feature set. See `src/bias-study.mjs`
-for a per-case bias convergence check.
+The web and Python **bias** models are identical (the equal-share floor then maximize,
+driven by the same per-stat `stat=N` weights), so bias is cross-checked too. Everything
+is cross-validated against the strict stat-vector match: bounds, divisor, `=`/`~`
+matches (tol 100 for hp↔st, 10 for combat pairs), no-early-switcheroo, per-vocation
+**require** minimums, a forced **start-as** class, **bias**, and **maximize** — the full
+web feature set. See `src/bias-study.mjs` for a per-case bias convergence check.
 
 

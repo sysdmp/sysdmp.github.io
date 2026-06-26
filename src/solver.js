@@ -371,7 +371,10 @@ function decode(sol, pool) {
 }
 
 /**
- * Solve for the build maximizing the balanced stat objective.
+ * Solve for the build maximizing the balanced stat objective. The objective uses
+ * integer (OBJ_SCALE'd) weights and a deterministic combat-first tie-break, so the
+ * returned six stats are solver-independent — the Python prototype reaches the same
+ * stats for the same input (the vocation/level allocation may differ).
  *
  * @param {object} highs   an initialized HiGHS instance (await highsLoader(...)).
  * @param {object} [opts]
