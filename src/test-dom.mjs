@@ -67,8 +67,8 @@ check('no error thrown during app init',
 // (the symptom of the TDZ bug), they'd be empty.
 check('weight selector populated', ($('weight')?.options.length ?? 0) > 0,
       `${$('weight')?.options.length ?? 0} options`);
-check('starting-class selector populated', ($('start-class')?.options.length ?? 0) > 0,
-      `${$('start-class')?.options.length ?? 0} options`);
+check('starting-vocation selector populated', ($('start-voc')?.options.length ?? 0) > 0,
+      `${$('start-voc')?.options.length ?? 0} options`);
 check('maximize selector populated', ($('maximize')?.options.length ?? 0) > 0,
       `${$('maximize')?.options.length ?? 0} options`);
 check('vocation rows built', doc.querySelectorAll('#vocs .voc').length > 0,
