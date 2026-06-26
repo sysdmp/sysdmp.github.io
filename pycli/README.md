@@ -239,13 +239,21 @@ this rule.
 | `--iters N`  | `search`: iterations per seed (default 1,500,000).                                 |
 
 The ILP solver is exact and fast. It runs in two phases: first it evaluates every
-allowed start vocation and picks the build that best satisfies the objective (ties
-fall back to `fighter` / `strider` / `mage` order), which fixes the optimal final
-stats; then, when `--count > 1`, it enumerates additional builds that reach **those
-exact stats** via different leveling paths, using no-good cuts (so the extras are
-genuine alternatives, never lower-stat consolation builds). This mirrors the web app's
-"find alternatives" button. The `search` solver is a stochastic hill-climb used only as
-a fallback when PuLP is unavailable.
+allowed start vocation and picks the build that best satisfies the objective, which
+fixes the optimal final stats; then, when `--count > 1`, it enumerates additional
+builds that reach **those exact stats** via different leveling paths, using no-good
+cuts (so the extras are genuine alternatives, never lower-stat consolation builds).
+This mirrors the web app's "find alternatives" button. The `search` solver is a
+stochastic hill-climb used only as a fallback when PuLP is unavailable.
+
+The objective's weights are scaled to integers and, when several builds tie at the
+optimal score, a deterministic combat-first tie-break (attack → defense → mattack →
+mdefense → hp → st) — applied both within a start and across starts — selects one
+canonical stat-vector. This is the **same** scheme the web solver uses, so both return
+identical stats for the same input (the leveling path may still differ); the
+cross-validation harness asserts that stat-for-stat. A side effect: the canonical
+optimum is usually uniquely reachable, so `--count > 1` typically returns just one
+build.
 
 Each CBC solve is capped at a few seconds: some flag combinations (e.g. `--divisor 100`
 with a continuous `--bias`) leave CBC holding the optimum but unable to *prove* it

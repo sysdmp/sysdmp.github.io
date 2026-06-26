@@ -475,8 +475,10 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
     Two phases (mirrors the web solveMaxTotal -> sameStatsBuilds):
       1. Find the single optimal build via the full objective pipeline (maximize
          lex pre-pass -> bounds/divisor/match targets -> bias equal-share floor ->
-         balanced total), taking the best start vocation. This fixes the optimal
-         final stats.
+         balanced total), taking the best start vocation, then a deterministic
+         combat-first tie-break (TIEBREAK_ORDER) over both stats and start. With the
+         integer-scaled weights (OBJ_SCALE) this fixes ONE canonical optimal stat-
+         vector -- identical to what the web's HiGHS solver returns for the same input.
       2. Pin all six stats to that optimum and enumerate up to `count` DISTINCT
          (vocation, tier) allocations reaching those exact stats -- across all
          starts, walked with no-good cuts. So `count > 1` surfaces alternate
@@ -802,7 +804,7 @@ def parse_args():
         epilog=c("\nexamples:\n", 'bold', 'yellow') +
                "  # minimum HP and stamina, everything else unconstrained\n"
                "  ddda-build-solver.py --hp-min 3600 --st-min 4000\n\n"
-               "  # pin attack to an exact value, output 3 distinct builds\n"
+               "  # pin attack, show up to 3 leveling paths to the best stats\n"
                "  ddda-build-solver.py --attack 550 --count 3\n\n"
                "  # keep physical and magick stats equal\n"
                "  ddda-build-solver.py --match attack=mattack,defense=mdefense\n\n"
