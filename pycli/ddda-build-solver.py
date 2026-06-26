@@ -31,7 +31,13 @@ Solvers
 Run ``ddda-build-solver.py --help`` for the full set of options.
 """
 
-import random, argparse, json, sys, os, time, shlex
+import random
+import argparse
+import json
+import sys
+import os
+import time
+import shlex
 
 try:
     import pulp
@@ -112,8 +118,8 @@ def _pad(s, width, align='left'):
     if align == 'right':
         return ' ' * gap + s
     if align == 'center':
-        l = gap // 2
-        return ' ' * l + s + ' ' * (gap - l)
+        left = gap // 2
+        return ' ' * left + s + ' ' * (gap - left)
     return s + ' ' * gap
 
 def render_table(headers, rows, aligns=None, title=None):
@@ -136,9 +142,9 @@ def render_table(headers, rows, aligns=None, title=None):
         for i in range(ncol):
             widths[i] = max(widths[i], _vlen(row[i]))
 
-    def line(l, m, r):
+    def line(left, mid, right):
         """Build a horizontal rule with the given left/middle/right junctions."""
-        return l + m.join(GLYPH['h'] * (w + 2) for w in widths) + r
+        return left + mid.join(GLYPH['h'] * (w + 2) for w in widths) + right
     def fmt(cells):
         """Format one row of cells between vertical borders."""
         v = GLYPH['v']
@@ -259,8 +265,10 @@ def bias_ranks(bias_tiers):
         idx = pos_i if sign > 0 else neg_i
         for stat in tier:
             ranks[stat] = (sign, idx)
-        if sign > 0: pos_i += 1
-        else: neg_i += 1
+        if sign > 0:
+            pos_i += 1
+        else:
+            neg_i += 1
     return ranks
 
 # Character weight class sets base stamina. The data above assumes M (540).
@@ -312,7 +320,8 @@ def stats_of(start, c10, c100, c200, base_st=None):
     for counts, tier in ((c10, 'to10'), (c100, 'to100'), (c200, 'to200')):
         for voc, n in counts.items():
             g = growth(voc, tier)
-            for k in STATS: s[k] += g[k] * n
+            for k in STATS:
+                s[k] += g[k] * n
     return s
 
 def penalty(s, cons):
@@ -330,8 +339,10 @@ def penalty(s, cons):
     p = 0.0
     for k in STATS:
         lo, hi = cons[k]
-        if lo is not None and s[k] < lo: p += (lo - s[k]) * 5
-        if hi is not None and s[k] > hi: p += (s[k] - hi) * 5
+        if lo is not None and s[k] < lo:
+            p += (lo - s[k]) * 5
+        if hi is not None and s[k] > hi:
+            p += (s[k] - hi) * 5
     return p
 
 def rand_counts(vocs, total):
@@ -354,8 +365,11 @@ def neighbors_move(c, vocs):
     """
     a = random.choice([v for v in vocs if c[v]>0])
     b = random.choice(vocs)
-    if a==b: return None
-    nc = dict(c); nc[a]-=1; nc[b]+=1
+    if a==b:
+        return None
+    nc = dict(c)
+    nc[a]-=1
+    nc[b]+=1
     return nc
 
 SEARCH_RESTARTS = 60   # random restarts per search() call; iters split across them
@@ -410,7 +424,8 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
         # Seed the 1->10 distribution. no_early_switch pins all 9 to the start;
         # pawn keeps >=1 in the start (1 + scatter 8); otherwise scatter all 9.
         if no_early_switch:
-            c10 = {v: 0 for v in basic_pool}; c10[start] = 9
+            c10 = {v: 0 for v in basic_pool}
+            c10[start] = 9
         elif pawn:
             c10 = rand_counts(basic_pool, 8)
             c10[start] += 1
@@ -423,37 +438,53 @@ def search(cons, iters=1500000, base_st=None, allowed=None, start_pool=None, pro
             for it in range(iters // SEARCH_RESTARTS):
                 which = random.random()
                 if which < 0.1:
-                    nstart = random.choice(starts); nc10,nc100,nc200=c10,c100,c200
+                    nstart = random.choice(starts)
+                    nc10,nc100,nc200=c10,c100,c200
                     if no_early_switch and nstart != start:
                         # all 9 pre-10 levels follow the start vocation
-                        nc10 = {v: 0 for v in basic_pool}; nc10[nstart] = 9
+                        nc10 = {v: 0 for v in basic_pool}
+                        nc10[nstart] = 9
                     elif pawn and nstart != start and c10[nstart] == 0:
                         # the new start needs a 1->10 level; move one into it from
                         # a basic that has a surplus (prefer the old start).
                         donors = [v for v in basic_pool if c10[v] > (1 if v == start else 0)]
-                        if not donors: continue
-                        nc10 = dict(c10); nc10[max(donors, key=lambda v: c10[v])] -= 1; nc10[nstart] += 1
+                        if not donors:
+                            continue
+                        nc10 = dict(c10)
+                        nc10[max(donors, key=lambda v: c10[v])] -= 1
+                        nc10[nstart] += 1
                     np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
                     if np_<=cur_p:
-                        start=nstart; c10=nc10; cur_p=np_
+                        start=nstart
+                        c10=nc10
+                        cur_p=np_
                     continue
                 elif which < 0.2:
-                    if no_early_switch: continue   # 1->10 is fixed to the start vocation
-                    m = neighbors_move(c10, basic_pool);
-                    if m is None: continue
-                    if pawn and m[start] < 1: continue   # don't drain the start vocation
-                    nc10,nc100,nc200=m,c100,c200; nstart=start
+                    if no_early_switch:
+                        continue   # 1->10 is fixed to the start vocation
+                    m = neighbors_move(c10, basic_pool)
+                    if m is None:
+                        continue
+                    if pawn and m[start] < 1:
+                        continue   # don't drain the start vocation
+                    nc10,nc100,nc200=m,c100,c200
+                    nstart=start
                 elif which < 0.6:
                     m = neighbors_move(c100, adv_pool)
-                    if m is None: continue
-                    nc10,nc100,nc200=c10,m,c200; nstart=start
+                    if m is None:
+                        continue
+                    nc10,nc100,nc200=c10,m,c200
+                    nstart=start
                 else:
                     m = neighbors_move(c200, adv_pool)
-                    if m is None: continue
-                    nc10,nc100,nc200=c10,c100,m; nstart=start
+                    if m is None:
+                        continue
+                    nc10,nc100,nc200=c10,c100,m
+                    nstart=start
                 np_ = penalty(stats_of(nstart,nc10,nc100,nc200,base_st), cons)
                 if np_<=cur_p:
-                    c10,c100,c200=nc10,nc100,nc200; cur_p=np_
+                    c10,c100,c200=nc10,nc100,nc200
+                    cur_p=np_
         except KeyboardInterrupt:
             # fold this restart's in-progress state in, then signal upward
             consider((cur_p, start, c10, c100, c200, stats_of(start,c10,c100,c200,base_st)))
@@ -664,10 +695,13 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
                 # divisor mode: value == divisor*mult, min kept as floor, max dropped
                 mult = pulp.LpVariable(f"round_{k}_{start}", lowBound=0, cat="Integer")
                 prob += exprs[k] == rounding[k] * mult
-                if lo is not None: prob += exprs[k] >= lo
+                if lo is not None:
+                    prob += exprs[k] >= lo
             else:
-                if lo is not None: prob += exprs[k] >= lo
-                if hi is not None: prob += exprs[k] <= hi
+                if lo is not None:
+                    prob += exprs[k] >= lo
+                if hi is not None:
+                    prob += exprs[k] <= hi
         # match mode: tol 0 forces paired stats to share a value; tol>0 (the '~'
         # operator) lets them differ by at most `tol` points (|a - b| <= tol).
         for a_stat, b_stat, tol in match:
@@ -769,11 +803,11 @@ def solve_ilp(cons, count=1, rounding=None, match=(),
                 vals = {v: int(round(xs[v].value())) for v in vocs}
                 for v in vocs:
                     vi, xi = vals[v], xs[v]
-                    g = pulp.LpVariable(f"g{start}_{cut_id}_{xs[v].name}", cat="Binary")
-                    l = pulp.LpVariable(f"l{start}_{cut_id}_{xs[v].name}", cat="Binary")
-                    prob += xi >= (vi + 1) - (vi + 1) * (1 - g)   # g=1 => xi >= vi+1
-                    prob += xi <= (vi - 1) + (U + 1) * (1 - l)    # l=1 => xi <= vi-1
-                    inds += [g, l]
+                    gt = pulp.LpVariable(f"g{start}_{cut_id}_{xs[v].name}", cat="Binary")
+                    lt = pulp.LpVariable(f"l{start}_{cut_id}_{xs[v].name}", cat="Binary")
+                    prob += xi >= (vi + 1) - (vi + 1) * (1 - gt)   # gt=1 => xi >= vi+1
+                    prob += xi <= (vi - 1) + (U + 1) * (1 - lt)    # lt=1 => xi <= vi-1
+                    inds += [gt, lt]
             prob += pulp.lpSum(inds) >= 1
             cut_id += 1
 
@@ -1115,10 +1149,14 @@ def print_build(idx, build, cons, rounding=None, weight=None, bias_tiers=(), bia
         ok = (lo is None or s[k] >= lo) and (hi_eff is None or s[k] <= hi_eff)
         val = c(str(s[k]), 'green' if ok else 'red', 'bold')
         bound = []
-        if lo is not None: bound.append(f"{GLYPH['ge']}{lo}")
-        if hi_eff is not None: bound.append(f"{GLYPH['le']}{hi_eff}")
-        if k in rounding: bound.append(f"{GLYPH['mul']}{rounding[k]}")
-        if k in bias_note: bound.append(bias_note[k])
+        if lo is not None:
+            bound.append(f"{GLYPH['ge']}{lo}")
+        if hi_eff is not None:
+            bound.append(f"{GLYPH['le']}{hi_eff}")
+        if k in rounding:
+            bound.append(f"{GLYPH['mul']}{rounding[k]}")
+        if k in bias_note:
+            bound.append(bias_note[k])
         rows.append([c(k,'cyan'), val, c(' '.join(bound) or GLYPH['dash'], 'dim')])
     # summary totals
     combat = s['attack'] + s['mattack'] + s['defense'] + s['mdefense']
@@ -1260,7 +1298,8 @@ def owoc_url(build):
     produce maps onto the planner losslessly.
     """
     _, start, c10, c100, c200, _ = build
-    hb = lambda n: format(int(n), '02x')
+    def hb(n):
+        return format(int(n), '02x')
     s = 'a' + {'fighter': 'f', 'strider': 's', 'mage': 'm'}[start]
     s += ''.join(hb(c100.get(v, 0)) for v in VOC_ORDER)
     s += ''.join(hb(c200.get(v, 0)) for v in VOC_ORDER)
@@ -1481,7 +1520,8 @@ def main():
         seen, out = set(), []
         for s in items:
             if s not in seen:
-                seen.add(s); out.append(s)
+                seen.add(s)
+                out.append(s)
         return out
 
     def parse_voc_list(raw):

@@ -13,7 +13,11 @@ Conventions:
 
 Usage:  uv run builds/regen.py      (run from the repo root)
 """
-import json, subprocess, shlex, glob, os, sys
+import json
+import subprocess
+import shlex
+import glob
+import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOLVER = os.path.join(os.path.dirname(HERE), "ddda-build-solver.py")

@@ -17,3 +17,15 @@ classifiers = [
 dependencies = [
     "pulp>=3.3.1",
 ]
+
+# Ruff lint config (run via `uvx ruff check pycli`, wired into `npm test`). Pin the
+# rule set + target so the check is stable across ruff versions. Ruff's default
+# selection — pyflakes (F: real bugs like unused imports/names) plus the pycodestyle
+# error subset E4/E7/E9 (imports, statement style, syntax) — but NOT E501
+# line-too-long, which this codebase intentionally exceeds in data tables and help text.
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W"]
+

@@ -6,9 +6,10 @@
   "type": "module",
   "main": "src/solver.js",
   "scripts": {
-    "test": "node src/test.mjs && make && node src/test-dom.mjs",
+    "test": "node src/test.mjs && make && node src/test-dom.mjs && npm run test:lint",
     "test:dom": "node src/test-dom.mjs",
     "test:py": "node src/test-python.mjs",
+    "test:lint": "uvx ruff check pycli",
     "build": "make"
   },
   "dependencies": {
